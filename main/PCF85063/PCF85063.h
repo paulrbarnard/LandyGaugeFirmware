@@ -74,7 +74,7 @@ typedef struct {
 extern datetime_t datetime;
 
 void PCF85063_Init(void);
-void RTC_Loop(void);
+void PCF85063_Loop(void);
 void PCF85063_Reset(void);
 
 void PCF85063_Set_Time(datetime_t time);

@@ -1,6 +1,8 @@
 #include "LVGL_Example.h"
-#include "esp_heap_caps.h"
-#include "esp_log.h"
+#include "LVGL_Music.h"
+#include <demos/lv_demos.h>
+// #include <demos/music/lv_demo_music_main.h>
+// #include <demos/music/lv_demo_music_list.h>
 
 
 /**********************
@@ -16,6 +18,7 @@ typedef enum {
  *  STATIC PROTOTYPES
  **********************/
 static void Onboard_create(lv_obj_t * parent);
+static void Music_create(lv_obj_t * parent);
 
 static void ta_event_cb(lv_event_t * e);
 void example1_increase_lvgl_tick(lv_timer_t * t);
@@ -25,18 +28,25 @@ void example1_increase_lvgl_tick(lv_timer_t * t);
 static disp_size_t disp_size;
 
 static lv_obj_t * tv;
+// static lv_obj_t * calendar;
 lv_style_t style_text_muted;
 lv_style_t style_title;
 static lv_style_t style_icon;
 static lv_style_t style_bullet;
 
+
 static const lv_font_t * font_large;
 static const lv_font_t * font_normal;
 
 static lv_timer_t * auto_step_timer;
-// static lv_color_t original_screen_bg_color;
+static lv_color_t original_screen_bg_color;
 
 static lv_timer_t * meter2_timer;
+
+lv_obj_t * t0;
+lv_obj_t * t1;
+lv_obj_t * t2;
+lv_obj_t * t3;
 
 lv_obj_t * SD_Size;
 lv_obj_t * FlashSize;
@@ -44,65 +54,61 @@ lv_obj_t * BAT_Volts;
 lv_obj_t * Board_angle;
 lv_obj_t * RTC_Time;
 lv_obj_t * Wireless_Scan;
+lv_obj_t * Backlight_add;
+lv_obj_t * Backlight_subtract;
 lv_obj_t * Backlight_slider;
 
 
-void Lvgl_Example1(void){
-  // Clean the screen first to remove any previous demo content
-  ESP_LOGI("LVGL_EXAMPLE", "Starting Lvgl_Example1 - cleaning screen");
-  lv_obj_t * scr = lv_scr_act();
-  lv_obj_clean(scr);
-  lv_obj_set_style_bg_color(scr, lv_color_white(), 0);
-  lv_obj_invalidate(scr);
-  lv_refr_now(NULL);  // Force immediate refresh
-  ESP_LOGI("LVGL_EXAMPLE", "Screen cleaned, building UI");
+uint8_t UI_Page = 0;
 
-  if(LV_HOR_RES <= 320) disp_size = DISP_SMALL;             
-  else if(LV_HOR_RES < 720) disp_size = DISP_MEDIUM;       
-  else disp_size = DISP_LARGE;    
+void Page_switching(void)
+{
+  uint16_t page = lv_tabview_get_tab_act(tv);
+
+  if (page == 1) { 
+    lv_tabview_set_act(tv, 2, LV_ANIM_ON); 
+  } else if (page == 2) { 
+    lv_tabview_set_act(tv, 1, LV_ANIM_ON); 
+  }
+  
+  lv_obj_t *screen = lv_scr_act();
+  lv_obj_invalidate(screen);
+
+}
+
+void auto_switch(lv_timer_t * t)
+{
+  uint16_t page = lv_tabview_get_tab_act(tv);
+
+  UI_Page = page;
+  if (page == 0) { 
+    lv_tabview_set_act(tv, 1, LV_ANIM_ON); 
+  } else if (page == 3) { 
+    lv_tabview_set_act(tv, 2, LV_ANIM_ON); 
+  }
+}
+
+void Lvgl_Example1(void){
+
+  ESP_LOGI("LVGL_Example", "Starting Lvgl_Example1");
+  
+  disp_size = DISP_SMALL;                            
+
   font_large = LV_FONT_DEFAULT;                             
   font_normal = LV_FONT_DEFAULT;                         
   
   lv_coord_t tab_h;
-  if(disp_size == DISP_LARGE) {
-    tab_h = 70;
-    #if LV_FONT_MONTSERRAT_24
-      font_large     = &lv_font_montserrat_24;
-    #else
-      LV_LOG_WARN("LV_FONT_MONTSERRAT_24 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
-    #endif
-    #if LV_FONT_MONTSERRAT_16
-      font_normal    = &lv_font_montserrat_16;
-    #else
-      LV_LOG_WARN("LV_FONT_MONTSERRAT_16 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
-    #endif
-  }
-  else if(disp_size == DISP_MEDIUM) {
-    tab_h = 45;
-    #if LV_FONT_MONTSERRAT_20
-      font_large     = &lv_font_montserrat_20;
-    #else
-        LV_LOG_WARN("LV_FONT_MONTSERRAT_20 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
-    #endif
-    #if LV_FONT_MONTSERRAT_14
-      font_normal    = &lv_font_montserrat_14;
-    #else
-      LV_LOG_WARN("LV_FONT_MONTSERRAT_14 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
-    #endif
-  }
-  else {   /* disp_size == DISP_SMALL */
-    tab_h = 45;
-    #if LV_FONT_MONTSERRAT_18
-      font_large     = &lv_font_montserrat_18;
-    #else
-      LV_LOG_WARN("LV_FONT_MONTSERRAT_18 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
-    #endif
-    #if LV_FONT_MONTSERRAT_12
-      font_normal    = &lv_font_montserrat_12;
-    #else
-      LV_LOG_WARN("LV_FONT_MONTSERRAT_12 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
-    #endif
-  }         // 设置字体
+  tab_h = 45;
+  #if LV_FONT_MONTSERRAT_18
+    font_large     = &lv_font_montserrat_18;
+  #else
+    LV_LOG_WARN("LV_FONT_MONTSERRAT_18 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
+  #endif
+  #if LV_FONT_MONTSERRAT_12
+    font_normal    = &lv_font_montserrat_12;
+  #else
+    LV_LOG_WARN("LV_FONT_MONTSERRAT_12 is not enabled for the widgets demo. Using LV_FONT_DEFAULT instead.");
+  #endif
   
   lv_style_init(&style_text_muted);
   lv_style_set_text_opa(&style_text_muted, LV_OPA_90);
@@ -141,49 +147,29 @@ void Lvgl_Example1(void){
     lv_obj_align_to(label, logo, LV_ALIGN_OUT_RIGHT_BOTTOM, 10, 0);
   }
 
-  lv_obj_t * t1 = lv_tabview_add_tab(tv, "Onboard");
-  // lv_obj_t * t2 = lv_tabview_add_tab(tv, "Buzzer");
-  // lv_obj_t * t3 = lv_tabview_add_tab(tv, "Shop");
+  t0 = lv_tabview_add_tab(tv, "       ");
+  t1 = lv_tabview_add_tab(tv, "Onboard");
+  t2 = lv_tabview_add_tab(tv, "music");
+  t3 = lv_tabview_add_tab(tv, "       ");
+
+  ESP_LOGI("LVGL_Example", "Tabs created");
   
-  // lv_coord_t screen_width = lv_obj_get_width(lv_scr_act());
-  // lv_obj_set_width(t1, screen_width);
+  LV_UNUSED(t0);  
+  LV_UNUSED(t3);  
   Onboard_create(t1);
-  // Buzzer_create(t2);
-  // shop_create(t3);
-
-  // color_changer_create(tv);
+  
+  ESP_LOGI("LVGL_Example", "Onboard created");
+  
+  Music_create(t2);
+  
+  ESP_LOGI("LVGL_Example", "Music tab created");
+  
+  lv_timer_create(auto_switch, 100, NULL);
+  
+  ESP_LOGI("LVGL_Example", "Lvgl_Example1 complete");
+  
 }
 
-static void led_event_cb(lv_event_t *e) {
-    lv_obj_t *led = (lv_obj_t *)lv_event_get_user_data(e);
-    lv_obj_t *sw = lv_event_get_target(e); 
-    if (lv_obj_get_state(sw) & LV_STATE_CHECKED) {
-      lv_led_on(led);
-      Buzzer_On();
-    } 
-    else {
-      lv_led_off(led);
-      Buzzer_Off();
-    }
-}
-// static void Buzzer_create(lv_obj_t * parent)
-// {
-//   lv_obj_t *label = lv_label_create(parent);
-//   lv_label_set_text(label, "The buzzer tes");
-//   lv_obj_set_size(label, LV_PCT(30), LV_PCT(5));
-//   lv_obj_align(label, LV_ALIGN_CENTER, 0, -60);
-//   lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0); 
-
-
-//   lv_obj_t *led = lv_led_create(parent);
-//   lv_obj_set_size(led, 50, 50);
-//   lv_obj_align(led, LV_ALIGN_CENTER, -60, 0);
-//   lv_led_off(led);
-
-//   lv_obj_t *sw = lv_switch_create(parent);
-//   lv_obj_align(sw, LV_ALIGN_CENTER, 60, 0);
-//   lv_obj_add_event_cb(sw, led_event_cb, LV_EVENT_VALUE_CHANGED, led);
-// }
 void Lvgl_Example1_close(void)
 {
   /*Delete all animation*/
@@ -261,6 +247,7 @@ static void Onboard_create(lv_obj_t * parent)
   lv_textarea_set_placeholder_text(RTC_Time, "Display time");
   lv_obj_add_event_cb(RTC_Time, ta_event_cb, LV_EVENT_ALL, NULL);
 
+
   lv_obj_t * Wireless_label = lv_label_create(panel1);
   lv_label_set_text(Wireless_label, "Wireless scan");
   lv_obj_add_style(Wireless_label, &style_text_muted, 0);
@@ -274,6 +261,16 @@ static void Onboard_create(lv_obj_t * parent)
   lv_label_set_text(Backlight_label, "Backlight brightness");
   lv_obj_add_style(Backlight_label, &style_text_muted, 0);
 
+  
+
+  Backlight_subtract = lv_label_create(panel1);                   
+  lv_label_set_text(Backlight_subtract, LV_SYMBOL_MINUS); 
+  lv_obj_set_style_text_font(Backlight_subtract, &lv_font_montserrat_14, 0); 
+  lv_obj_align(Backlight_subtract, LV_ALIGN_CENTER, 0, 0); 
+  lv_obj_add_event_cb(Backlight_subtract, Backlight_adjustment_event_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(Backlight_subtract, LV_OBJ_FLAG_CLICKABLE); 
+
+
   Backlight_slider = lv_slider_create(panel1);                                 
   lv_obj_add_flag(Backlight_slider, LV_OBJ_FLAG_CLICKABLE);    
   lv_obj_set_size(Backlight_slider, 200, 35);              
@@ -286,43 +283,24 @@ static void Onboard_create(lv_obj_t * parent)
   lv_obj_set_style_outline_color(Backlight_slider, lv_color_hex(0xD3D3D3), LV_PART_INDICATOR);      
   lv_slider_set_range(Backlight_slider, 5, Backlight_MAX);              
   lv_slider_set_value(Backlight_slider, LCD_Backlight, LV_ANIM_ON);  
-  lv_obj_add_event_cb(Backlight_slider, Backlight_adjustment_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
 
-  lv_obj_t * panel2 = lv_obj_create(parent);
-  lv_obj_set_height(panel2, LV_SIZE_CONTENT);
+  Backlight_add = lv_label_create(panel1);                   
+  lv_label_set_text(Backlight_add, LV_SYMBOL_PLUS); 
+  lv_obj_set_style_text_font(Backlight_add, &lv_font_montserrat_14, 0); 
+  lv_obj_align(Backlight_add, LV_ALIGN_CENTER, 0, 0); 
+  lv_obj_add_event_cb(Backlight_add, Backlight_adjustment_event_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_flag(Backlight_add, LV_OBJ_FLAG_CLICKABLE); 
 
-  lv_obj_t * panel2_title = lv_label_create(panel2);
-  lv_label_set_text(panel2_title, "The buzzer tes");
-  lv_obj_add_style(panel2_title, &style_title, 0);
 
-  lv_obj_t *led = lv_led_create(panel2);
-  lv_obj_set_size(led, 50, 50);
-  lv_obj_align(led, LV_ALIGN_CENTER, -60, 0);
-  lv_led_off(led);
-
-  lv_obj_t *sw = lv_switch_create(panel2);
-  lv_obj_set_size(sw, 65, 40);
-  lv_obj_align(sw, LV_ALIGN_CENTER, 60, 0);
-  lv_obj_add_event_cb(sw, led_event_cb, LV_EVENT_VALUE_CHANGED, led);
-
-/////////////////////////////////////////////////////////
   static lv_coord_t grid_main_col_dsc[] = {LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-  static lv_coord_t grid_main_row_dsc[] = {LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST};
+  static lv_coord_t grid_main_row_dsc[] = {LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_CONTENT, LV_GRID_TEMPLATE_LAST};
+  lv_obj_set_grid_dsc_array(parent, grid_main_col_dsc, grid_main_row_dsc);
 
 
   /*Create the top panel*/
-  static lv_coord_t grid_1_col_dsc[] = {LV_GRID_FR(4),  LV_GRID_FR(1),  LV_GRID_FR(1),  LV_GRID_FR(1), LV_GRID_FR(4), LV_GRID_TEMPLATE_LAST};
+  static lv_coord_t grid_1_col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(2), LV_GRID_FR(5), LV_GRID_FR(2), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
   static lv_coord_t grid_1_row_dsc[] = {
-    LV_GRID_CONTENT, /*Name*/
-    LV_GRID_CONTENT, /*Description*/
-    LV_GRID_CONTENT, /*Email*/
-    LV_GRID_CONTENT, /*Email*/
-    LV_GRID_TEMPLATE_LAST
-  };
-
-  static lv_coord_t grid_2_col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(5), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-  static lv_coord_t grid_2_row_dsc[] = {
     LV_GRID_CONTENT,  /*Title*/
     5,                /*Separator*/
     LV_GRID_CONTENT,  /*Box title*/
@@ -339,39 +317,29 @@ static void Onboard_create(lv_obj_t * parent)
     40,               /*Box*/
     LV_GRID_CONTENT,  /*Box title*/
     40,               /*Box*/
-    LV_GRID_CONTENT,  /*Box title*/
-    40,               /*Box*/
-    LV_GRID_TEMPLATE_LAST
+    LV_GRID_TEMPLATE_LAST               
   };
 
-
-  lv_obj_set_grid_dsc_array(parent, grid_main_col_dsc, grid_main_row_dsc);
-
   lv_obj_set_grid_cell(panel1, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_START, 0, 1);
-  lv_obj_set_grid_dsc_array(panel1, grid_2_col_dsc, grid_2_row_dsc);
-  lv_obj_set_grid_cell(panel1_title, LV_GRID_ALIGN_CENTER, 1, 1, LV_GRID_ALIGN_CENTER, 0, 1);
-  lv_obj_set_grid_cell(SD_label, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 2, 1);
-  lv_obj_set_grid_cell(SD_Size, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_CENTER, 3, 1);
-  lv_obj_set_grid_cell(Flash_label, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 4, 1);
-  lv_obj_set_grid_cell(FlashSize, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_CENTER, 5, 1);
-  lv_obj_set_grid_cell(BAT_label, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 6, 1);
-  lv_obj_set_grid_cell(BAT_Volts, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_CENTER, 7, 1);
-  lv_obj_set_grid_cell(angle_label, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 8, 1);
-  lv_obj_set_grid_cell(Board_angle, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_CENTER, 9, 1);
-  lv_obj_set_grid_cell(Time_label, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 10, 1);
-  lv_obj_set_grid_cell(RTC_Time, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_CENTER, 11, 1);
-  lv_obj_set_grid_cell(Wireless_label, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 12, 1);
-  lv_obj_set_grid_cell(Wireless_Scan, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_CENTER, 13, 1);
-  lv_obj_set_grid_cell(Backlight_label, LV_GRID_ALIGN_START, 1, 1, LV_GRID_ALIGN_START, 14, 1);
-  lv_obj_set_grid_cell(Backlight_slider, LV_GRID_ALIGN_STRETCH, 1, 1, LV_GRID_ALIGN_CENTER, 15, 1);
+  lv_obj_set_grid_dsc_array(panel1, grid_1_col_dsc, grid_1_row_dsc);
+  lv_obj_set_grid_cell(panel1_title, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_CENTER, 0, 1);
+  lv_obj_set_grid_cell(SD_label, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_START, 2, 1);
+  lv_obj_set_grid_cell(SD_Size, LV_GRID_ALIGN_STRETCH, 1, 3, LV_GRID_ALIGN_CENTER, 3, 1);
+  lv_obj_set_grid_cell(Flash_label, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_START, 4, 1);
+  lv_obj_set_grid_cell(FlashSize, LV_GRID_ALIGN_STRETCH, 1, 3, LV_GRID_ALIGN_CENTER, 5, 1);
+  lv_obj_set_grid_cell(BAT_label, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_START, 6, 1);
+  lv_obj_set_grid_cell(BAT_Volts, LV_GRID_ALIGN_STRETCH, 1, 3, LV_GRID_ALIGN_CENTER, 7, 1);
+  lv_obj_set_grid_cell(angle_label, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_START, 8, 1);
+  lv_obj_set_grid_cell(Board_angle, LV_GRID_ALIGN_STRETCH, 1, 3, LV_GRID_ALIGN_CENTER, 9, 1);
+  lv_obj_set_grid_cell(Time_label, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_START, 10, 1);
+  lv_obj_set_grid_cell(RTC_Time, LV_GRID_ALIGN_STRETCH, 1, 3, LV_GRID_ALIGN_CENTER, 11, 1);
+  lv_obj_set_grid_cell(Wireless_label, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_START, 12, 1);
+  lv_obj_set_grid_cell(Wireless_Scan, LV_GRID_ALIGN_STRETCH, 1, 3, LV_GRID_ALIGN_CENTER, 13, 1);
+  lv_obj_set_grid_cell(Backlight_label, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_START, 14, 1);
+  lv_obj_set_grid_cell(Backlight_subtract, LV_GRID_ALIGN_CENTER, 1, 1, LV_GRID_ALIGN_CENTER, 15, 1);
+  lv_obj_set_grid_cell(Backlight_slider, LV_GRID_ALIGN_STRETCH, 2, 1, LV_GRID_ALIGN_CENTER, 15, 1);
+  lv_obj_set_grid_cell(Backlight_add, LV_GRID_ALIGN_CENTER, 3, 1, LV_GRID_ALIGN_CENTER, 15, 1);
 
-  lv_obj_set_grid_cell(panel2, LV_GRID_ALIGN_STRETCH, 0, 1, LV_GRID_ALIGN_STRETCH, 1, 1);
-  lv_obj_set_grid_dsc_array(panel2, grid_1_col_dsc, grid_1_row_dsc);
-  lv_obj_set_grid_cell(panel2_title, LV_GRID_ALIGN_CENTER, 2, 1, LV_GRID_ALIGN_CENTER, 0, 1);
-  lv_obj_set_grid_cell(led, LV_GRID_ALIGN_CENTER, 1, 1, LV_GRID_ALIGN_CENTER, 2, 1);
-  lv_obj_set_grid_cell(sw, LV_GRID_ALIGN_CENTER, 3, 1, LV_GRID_ALIGN_CENTER, 2, 1);
-
-  
   auto_step_timer = lv_timer_create(example1_increase_lvgl_tick, 100, NULL);
 }
 
@@ -390,130 +358,62 @@ void example1_increase_lvgl_tick(lv_timer_t * t)
   snprintf(buf, sizeof(buf), "%d.%d.%d   %d:%d:%d\r\n",datetime.year,datetime.month,datetime.day,datetime.hour,datetime.minute,datetime.second);
   lv_textarea_set_placeholder_text(RTC_Time, buf);
   if(Scan_finish)
-    snprintf(buf, sizeof(buf), "WIFI: %d    BLE: %d    ..Scan Finish.\r\n",WIFI_NUM,BLE_NUM);
+    // snprintf(buf, sizeof(buf), "WIFI: %d    BLE: %d    ..Scan Finish.\r\n",WIFI_NUM,BLE_NUM);
+    snprintf(buf, sizeof(buf), "WIFI: %d     ..Scan Finish.\r\n",WIFI_NUM);
   else
-    snprintf(buf, sizeof(buf), "WIFI: %d    BLE: %d\r\n",WIFI_NUM,BLE_NUM);
+    snprintf(buf, sizeof(buf), "WIFI: %d  \r\n",WIFI_NUM);
+    // snprintf(buf, sizeof(buf), "WIFI: %d    BLE: %d\r\n",WIFI_NUM,BLE_NUM);
   lv_textarea_set_placeholder_text(Wireless_Scan, buf);
   lv_slider_set_value(Backlight_slider, LCD_Backlight, LV_ANIM_ON); 
   LVGL_Backlight_adjustment(LCD_Backlight);
 }
-
-
-
-
-
-static void ta_event_cb(lv_event_t * e)
+static void Music_create(lv_obj_t * parent)
 {
+  // Music demo disabled - LVGL_Music.c not compiled
+  lv_obj_t * label = lv_label_create(parent);
+  lv_label_set_text(label, "Music Demo\n(Not Available)");
+  lv_obj_center(label);
+  lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 
 
 void Backlight_adjustment_event_cb(lv_event_t * e) {
-  uint8_t Backlight = lv_slider_get_value(lv_event_get_target(e));  
+
+  lv_obj_t * target = lv_event_get_target(e);
+  uint8_t Backlight = lv_slider_get_value(Backlight_slider);  
+  if(target == Backlight_add){
+    if(Backlight < 99)
+      Backlight = Backlight + 2;
+    else{
+      printf("Backlight out of range: %d\n", Backlight);
+      Backlight = 100;
+    }
+    
+  }
+  else if(target == Backlight_subtract){
+    if(Backlight > 1)
+      Backlight = Backlight - 2;
+    else{
+      printf("Backlight out of range: %d\n", Backlight);
+      Backlight = 0;
+    }
+  }
   if (Backlight <= Backlight_MAX)  {
     lv_slider_set_value(Backlight_slider, Backlight, LV_ANIM_ON); 
     LCD_Backlight = Backlight;
     LVGL_Backlight_adjustment(Backlight);
   }
-  else
-    printf("Volume out of range: %d\n", Backlight);
 
+}
+
+static void ta_event_cb(lv_event_t * e)
+{
 }
 
 void LVGL_Backlight_adjustment(uint8_t Backlight) {
   Set_Backlight(Backlight);                                 
 }
-
-/**********************
- *   COLOR GRADIENT DEMO
- **********************/
-void lv_demo_color_gradient(void)
-{
-    lv_obj_t * scr = lv_scr_act();
-    
-    // Get screen dimensions
-    lv_coord_t screen_width = lv_obj_get_width(scr);
-    lv_coord_t screen_height = lv_obj_get_height(scr);
-    
-    // Create a canvas to draw the gradient
-    lv_obj_t * canvas = lv_canvas_create(scr);
-    
-    // Allocate buffer for the canvas in heap (PSRAM if available)
-    // RGB565 format: 2 bytes per pixel
-    uint32_t buf_size = LV_CANVAS_BUF_SIZE_TRUE_COLOR(screen_width, screen_height);
-    lv_color_t * cbuf = (lv_color_t *)heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    
-    if(cbuf == NULL) {
-        // Fallback to internal RAM if PSRAM allocation fails
-        cbuf = (lv_color_t *)malloc(buf_size);
-        if(cbuf == NULL) {
-            printf("Failed to allocate memory for color gradient canvas\n");
-            return;
-        }
-    }
-    
-    lv_canvas_set_buffer(canvas, cbuf, screen_width, screen_height, LV_IMG_CF_TRUE_COLOR);
-    lv_obj_center(canvas);
-    
-    // Fill the canvas with a full RGB gradient
-    // This creates a 2D gradient: hue changes horizontally, saturation/value changes vertically
-    for(int y = 0; y < screen_height; y++) {
-        for(int x = 0; x < screen_width; x++) {
-            // Calculate hue (0-360) based on x position
-            uint16_t hue = (x * 360) / screen_width;
-            
-            // Calculate saturation (0-100) based on y position (top half)
-            // Calculate value/brightness (0-100) based on y position (bottom half)
-            uint8_t sat, val;
-            
-            if(y < screen_height / 2) {
-                // Top half: vary saturation from 0 to 100, keep value at 100
-                sat = (y * 200) / screen_height;
-                val = 100;
-            } else {
-                // Bottom half: saturation at 100, vary value from 100 to 0
-                sat = 100;
-                val = 100 - ((y - screen_height / 2) * 200) / screen_height;
-            }
-            
-            // Convert HSV to RGB
-            lv_color_t color = lv_color_hsv_to_rgb(hue, sat, val);
-            
-            // Set pixel on canvas
-            lv_canvas_set_px_color(canvas, x, y, color);
-        }
-    }
-    
-    // Add a title label
-    lv_obj_t * label = lv_label_create(scr);
-    lv_label_set_text(label, "Full Color Gradient Demo");
-    lv_obj_set_style_text_color(label, lv_color_white(), 0);
-    lv_obj_set_style_bg_color(label, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(label, LV_OPA_70, 0);
-    lv_obj_set_style_pad_all(label, 5, 0);
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 10);
-    
-    // Add description label at bottom
-    lv_obj_t * desc_label = lv_label_create(scr);
-    lv_label_set_text(desc_label, "Horizontal: Hue (0-360°)\nTop: Saturation | Bottom: Brightness");
-    lv_obj_set_style_text_color(desc_label, lv_color_white(), 0);
-    lv_obj_set_style_bg_color(desc_label, lv_color_black(), 0);
-    lv_obj_set_style_bg_opa(desc_label, LV_OPA_70, 0);
-    lv_obj_set_style_pad_all(desc_label, 5, 0);
-    lv_obj_set_style_text_align(desc_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(desc_label, LV_ALIGN_BOTTOM_MID, 0, -10);
-    
-    // Note: cbuf memory is not freed as canvas needs it to remain valid
-    // It will be freed when the object is deleted or on app restart
-}
-
-
-
-
-
-
-
-
 
 
 

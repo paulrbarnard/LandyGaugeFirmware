@@ -8,8 +8,8 @@
 
 
 /********************* I2C *********************/
-#define I2C_Touch_SCL_IO            7         /*!< GPIO number used for I2C master clock */
-#define I2C_Touch_SDA_IO            15         /*!< GPIO number used for I2C master data  */
+#define I2C_SCL_IO                  10         /*!< GPIO number used for I2C master clock */
+#define I2C_SDA_IO                  11         /*!< GPIO number used for I2C master data  */
 #define I2C_MASTER_NUM              0         /*!< I2C master i2c port number, the number of i2c peripheral interfaces available will depend on the chip */
 #define I2C_MASTER_FREQ_HZ          400000    /*!< I2C master clock frequency */
 #define I2C_MASTER_TX_BUF_DISABLE   0         /*!< I2C master doesn't need buffer */

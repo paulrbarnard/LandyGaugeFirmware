@@ -2,10 +2,7 @@
 
 
 #include <stdio.h>
-#include "driver/i2c.h"
-
-#include "Buzzer.h"
-
+#include "I2C_Driver.h"
 #define TCA9554_EXIO1 0x01
 #define TCA9554_EXIO2 0x02
 #define TCA9554_EXIO3 0x03
@@ -15,11 +12,6 @@
 #define TCA9554_EXIO7 0x07
 #define TCA9554_EXIO8 0x08
 
-#define I2C_MASTER_SDA_IO           15     
-#define I2C_MASTER_SCL_IO           7  
-#define I2C_MASTER_NUM              0                       // Specify the I2C bus port to use. ESP32 chips typically have two I2C bus ports: I2C_NUM_0 and I2C_NUM_1
-#define I2C_MASTER_FREQ_HZ          400000                  // I2C master clock frequency, set to 400KHz 
-#define I2C_MASTER_TIMEOUT_MS       1000
 
 /****************************************************** The macro defines the TCA9554PWR information ******************************************************/ 
 
@@ -42,7 +34,7 @@ void Mode_EXIOS(uint8_t PinState);                          // Set the mode of t
 uint8_t Read_EXIO(uint8_t Pin);                             // Read the level of the TCA9554PWR Pin
 uint8_t Read_EXIOS(void);                                   // Read the level of all pins of TCA9554PWR, the default read input level state, want to get the current IO output state, pass the parameter TCA9554_OUTPUT_REG, such as Read_EXIOS(TCA9554_OUTPUT_REG);
 /********************************************************** Set the EXIO output status **********************************************************/  
-void Set_EXIO(uint8_t Pin,uint8_t State);                   // Sets the level state of the Pin without affecting the other pins
+void Set_EXIO(uint8_t Pin,bool State);                   // Sets the level state of the Pin without affecting the other pins
 void Set_EXIOS(uint8_t PinState);                           // Set 7 pins to the PinState state such as :PinState=0x23, 0010 0011 state (the highest bit is not used)
 /********************************************************** Flip EXIO state **********************************************************/  
 void Set_Toggle(uint8_t Pin);                               // Flip the level of the TCA9554PWR Pin

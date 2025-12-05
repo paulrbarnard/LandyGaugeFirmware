@@ -52,14 +52,14 @@ uint8_t Read_EXIOS(void)                                  // Read the level of a
 }
 
 /********************************************************** Set the EXIO output status **********************************************************/  
-void Set_EXIO(uint8_t Pin,uint8_t State)                  // Sets the level state of the Pin without affecting the other pins(PIN：1~8)
+void Set_EXIO(uint8_t Pin,bool State)                  // Sets the level state of the Pin without affecting the other pins(PIN：1~8)
 {
     uint8_t Data = 0;
     uint8_t bitsStatus = Read_REG(TCA9554_OUTPUT_REG);         
-    if(State < 2 && Pin < 9 && Pin > 0){     
-        if(State == 1)                                     
+    if(Pin < 9 && Pin > 0){     
+        if(State)                                     
             Data = (0x01 << (Pin-1)) | bitsStatus;                 
-        else if(State == 0) 
+        else
             Data = (~(0x01 << (Pin-1)) & bitsStatus);  
         Write_REG(TCA9554_OUTPUT_REG,Data);
     }
@@ -79,21 +79,6 @@ void Set_Toggle(uint8_t Pin)                              // Flip the level of t
     Set_EXIO(Pin,(bool)!bitsStatus);
 }
 
-/******************************************* The I2C device is initialized. Procedure ***********************************************/  
-// esp_err_t i2c_master_init(void)                                         // Example Initialize I2C to host mode
-// {
-//     int i2c_master_port = I2C_MASTER_NUM;                             
-//     i2c_config_t conf = {
-//         .mode = I2C_MODE_MASTER,                                       
-//         .sda_io_num = I2C_MASTER_SDA_IO,                                
-//         .scl_io_num = I2C_MASTER_SCL_IO,                               
-//         .sda_pullup_en = GPIO_PULLUP_ENABLE,                         
-//         .scl_pullup_en = GPIO_PULLUP_ENABLE,                          
-//         .master.clk_speed = I2C_MASTER_FREQ_HZ,                       
-//     };
-//     i2c_param_config(i2c_master_port, &conf);                          
-//     return i2c_driver_install(i2c_master_port, conf.mode, 0, 0, 0);    
-// }
 
 /********************************************************* TCA9554PWR Initializes the device ***********************************************************/  
 void TCA9554PWR_Init(uint8_t PinState)                  // Set the seven pins to PinState state, for example :PinState=0x23, 0010 0011 State (the highest bit is not used) (Output mode or input mode) 0= Output mode 1= Input mode. The default value is output mode
@@ -105,6 +90,5 @@ void TCA9554PWR_Init(uint8_t PinState)                  // Set the seven pins to
 esp_err_t EXIO_Init(void)
 {
     TCA9554PWR_Init(0x00);
-    Buzzer_Off();
     return ESP_OK;
 }

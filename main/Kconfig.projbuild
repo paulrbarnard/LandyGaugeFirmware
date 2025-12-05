@@ -1,4 +1,43 @@
 menu "Example Configuration"
+
+    choice HARDWARE_VARIANT
+        prompt "Hardware Variant"
+        default HARDWARE_TOUCH_VERSION
+        help
+            Select the hardware variant of the Waveshare ESP32-S3-Touch-LCD-1.85 board.
+
+        config HARDWARE_TOUCH_VERSION
+            bool "Touch Version (with CST820 touch controller)"
+            help
+                Use this option for the touch-enabled version with CST820 capacitive touch.
+                Gauge switching uses touch gestures.
+
+        config HARDWARE_NO_TOUCH_VERSION
+            bool "Non-Touch Version (with external buttons)"
+            help
+                Use this option for the non-touch version.
+                Gauge switching uses external buttons connected to GPIO pins.
+    endchoice
+
+    config USE_TOUCH_CONTROLLER
+        bool
+        default y if HARDWARE_TOUCH_VERSION
+        default n if HARDWARE_NO_TOUCH_VERSION
+
+    config BUTTON_NEXT_GPIO
+        int "Next Button GPIO (Non-Touch Version)"
+        depends on HARDWARE_NO_TOUCH_VERSION
+        default 0
+        help
+            GPIO pin number for the "Next Gauge" button on non-touch version.
+
+    config BUTTON_PREV_GPIO
+        int "Previous Button GPIO (Non-Touch Version)"
+        depends on HARDWARE_NO_TOUCH_VERSION
+        default 4
+        help
+            GPIO pin number for the "Previous Gauge" button on non-touch version.
+
     config EXAMPLE_DOUBLE_FB
         bool "Use double Frame Buffer (RGB panel internal buffers)"
         default "n"
@@ -66,6 +105,10 @@ menu "Example Configuration"
 
     config LV_FONT_MONTSERRAT_16
         bool "Enable Montserrat 16"
+        default y if !LV_CONF_MINIMAL
+
+    config LV_FONT_MONTSERRAT_32
+        bool "Enable Montserrat 32"
         default y if !LV_CONF_MINIMAL
         
 

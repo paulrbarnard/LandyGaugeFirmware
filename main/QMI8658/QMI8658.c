@@ -61,7 +61,6 @@ void QMI8658_Init(void)
 void QMI8658_Loop(void)
 {
   getAccelerometer();
-  getGyroscope();
 }
 
 /**

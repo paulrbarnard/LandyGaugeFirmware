@@ -2,16 +2,47 @@
 
 A scaled version of LandyGauge optimized for the Waveshare ESP32-S3-Touch-LCD-1.85 (360x360 display).
 
-## Hardware
+## Hardware Support
 
-- **Board**: Waveshare ESP32-S3-Touch-LCD-1.85
+This project supports **both touch and non-touch versions** of the Waveshare ESP32-S3-Touch-LCD-1.85 board.
+
+### Hardware Variants
+
+#### Touch Version (Default)
+- **Board**: Waveshare ESP32-S3-Touch-LCD-1.85 (Touch)
 - **Display**: 1.85" RGB LCD, 360x360 resolution
 - **Touch**: CST820 capacitive touch controller
+- **Gauge Switching**: Touch gestures (to be implemented)
+
+#### Non-Touch Version
+- **Board**: Waveshare ESP32-S3-Touch-LCD-1.85 (Non-Touch)
+- **Display**: 1.85" RGB LCD, 360x360 resolution
+- **Touch**: None
+- **Gauge Switching**: External buttons on GPIO pins
+  - Default Next Button: GPIO 0
+  - Default Prev Button: GPIO 4
+
+### Common Features
 - **IMU**: QMI8658 6-axis motion sensor (gyroscope + accelerometer)
-- **Features**: 
-  - ESP32-S3 with 8MB Flash, 8MB PSRAM
-  - RGB565 color format
-  - ST7701S LCD driver
+- **MCU**: ESP32-S3 with 8MB Flash, 8MB PSRAM
+- **Display**: RGB565 color format, ST7701S LCD driver
+
+## Configuration
+
+Select your hardware variant using menuconfig:
+
+```bash
+idf.py menuconfig
+```
+
+Navigate to: **Example Configuration → Hardware Variant**
+
+- Select "Touch Version" for boards with CST820 touch controller
+- Select "Non-Touch Version" for boards without touch, using GPIO buttons
+
+For non-touch version, you can configure button GPIO pins:
+- **Next Button GPIO**: Default GPIO 0
+- **Previous Button GPIO**: Default GPIO 4
 
 ## Implemented Gauges
 

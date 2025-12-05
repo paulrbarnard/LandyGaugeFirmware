@@ -21,29 +21,29 @@ void Wireless_Init(void)
         "WIFI task",
         4096, 
         NULL, 
-        3, 
+        1, 
         NULL, 
         0);
-    // BLE
-    xTaskCreatePinnedToCore(
-        BLE_Init, 
-        "BLE task",
-        4096, 
-        NULL, 
-        2, 
-        NULL, 
-        0);
+    // // BLE
+    // xTaskCreatePinnedToCore(
+    //     BLE_Init, 
+    //     "BLE task",
+    //     4096, 
+    //     NULL, 
+    //     2, 
+    //     NULL, 
+    //     0);
 }
 
 void WIFI_Init(void *arg)
 {
     esp_netif_init();                                                     
-    esp_event_loop_create_default();                                  
+    esp_event_loop_create_default();                                      
     esp_netif_create_default_wifi_sta();                                 
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();              
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();                 
     esp_wifi_init(&cfg);                                      
     esp_wifi_set_mode(WIFI_MODE_STA);              
-    esp_wifi_start();                         
+    esp_wifi_start();                            
 
     WIFI_NUM = WIFI_Scan();
     printf("WIFI:%d\r\n",WIFI_NUM);
@@ -55,8 +55,11 @@ uint16_t WIFI_Scan(void)
     uint16_t ap_count = 0;
     esp_wifi_scan_start(NULL, true);
     ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(&ap_count));
+    esp_wifi_scan_stop();
     WiFi_Scan_Finish =1;
     if(BLE_Scan_Finish == 1)
+        Scan_finish = 1;
+    if(WiFi_Scan_Finish == 1)
         Scan_finish = 1;
     return ap_count;
 }
@@ -73,8 +76,7 @@ typedef struct {
 
 static discovered_device_t discovered_devices[MAX_DISCOVERED_DEVICES];
 static size_t num_discovered_devices = 0;
-static size_t num_devices_with_name = 0;
-
+static size_t num_devices_with_name = 0; 
 
 static bool is_device_discovered(const uint8_t *addr) {
     for (size_t i = 0; i < num_discovered_devices; i++) {
@@ -84,7 +86,6 @@ static bool is_device_discovered(const uint8_t *addr) {
     }
     return false;
 }
-
 
 static void add_device_to_list(const uint8_t *addr) {
     if (num_discovered_devices < MAX_DISCOVERED_DEVICES) {
@@ -97,7 +98,7 @@ static void add_device_to_list(const uint8_t *addr) {
 static bool extract_device_name(const uint8_t *adv_data, uint8_t adv_data_len, char *device_name, size_t max_name_len) {
     size_t offset = 0;
     while (offset < adv_data_len) {
-        if (adv_data[offset] == 0) break;
+        if (adv_data[offset] == 0) break; 
 
         uint8_t length = adv_data[offset];
         if (length == 0 || offset + length > adv_data_len) break; 
@@ -118,7 +119,7 @@ static bool extract_device_name(const uint8_t *adv_data, uint8_t adv_data_len, c
 }
 
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
-    static char device_name[100];
+    static char device_name[100]; 
 
     switch (event) {
         case ESP_GAP_BLE_SCAN_RESULT_EVT:
@@ -162,7 +163,7 @@ void BLE_Init(void *arg)
     if (ret) {
         printf("%s initialize controller failed: %s\n", __func__, esp_err_to_name(ret));        
         return;}
-    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);                                           
+    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);                                            
     if (ret) {
         printf("%s enable controller failed: %s\n", __func__, esp_err_to_name(ret));            
         return;}
@@ -182,6 +183,11 @@ void BLE_Init(void *arg)
         return;
     }
     BLE_Scan();
+    // while(1)
+    // {
+    //     vTaskDelay(pdMS_TO_TICKS(150));
+    // }
+    
     vTaskDelete(NULL);
 
 }
@@ -191,8 +197,8 @@ uint16_t BLE_Scan(void)
         .scan_type = BLE_SCAN_TYPE_ACTIVE,
         .own_addr_type = BLE_ADDR_TYPE_RPA_PUBLIC,
         .scan_filter_policy = BLE_SCAN_FILTER_ALLOW_ALL,
-        .scan_interval = 0x50,   
-        .scan_window = 0x30,       
+        .scan_interval = 0x50,     
+        .scan_window = 0x30,        
         .scan_duplicate         = BLE_SCAN_DUPLICATE_DISABLE
     };
     ESP_ERROR_CHECK(esp_ble_gap_set_scan_params(&scan_params));

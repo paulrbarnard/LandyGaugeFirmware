@@ -40,7 +40,7 @@ void PCF85063_Init()
 	// PCF85063_Set_All(Now_datetime);
 }
 
-void RTC_Loop(void)
+void PCF85063_Loop(void)
 {
   PCF85063_Read_Time(&datetime);
 }
