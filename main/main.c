@@ -9,6 +9,7 @@
 #include "PWR_Key.h"
 #include "PCM5101.h"
 #include "MIC_Speech.h"
+#include "CST820.h"
 
 void Driver_Loop(void *parameter)
 {
@@ -41,11 +42,13 @@ void Driver_Init(void)
         NULL, 
         0);
 }
+
 void app_main(void)
 {
     Driver_Init();
 
     SD_Init();
+    Touch_Init();  // Initialize touch BEFORE display to avoid GPIO conflict
     LCD_Init();
     Audio_Init();
     // MIC_Speech_init();  // Wake word: "Hi ESP" - TODO: Fix model partition format
@@ -54,7 +57,7 @@ void app_main(void)
 
 // /********************* Demo *********************/
     Lvgl_Example1();
-    Simulated_Touch_Init();
+    // Simulated_Touch_Init();  // Disabled - using real CST820 touch now
     // lv_demo_widgets();
     // lv_demo_keypad_encoder();
     // lv_demo_benchmark();

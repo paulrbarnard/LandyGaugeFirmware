@@ -1,4 +1,5 @@
 #include "LVGL_Driver.h"
+#include "CST820.h"
 
 static const char *TAG_LVGL = "LVGL";
 
@@ -30,19 +31,28 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
 /*Read the touchpad*/
 void example_touchpad_read( lv_indev_drv_t * drv, lv_indev_data_t * data )
 {
-  Simulated_Touch();
-  if (touch_data.points != 0x00) {
-    data->point.x = touch_data.x;
-    data->point.y = touch_data.y;
-    data->state = LV_INDEV_STATE_PR;
-    // printf("LVGL : X=%u Y=%u points=%d\r\n",  touch_data.x , touch_data.y,touch_data.points);
+  // Read real CST820 touch controller instead of simulated touch
+  if (tp != NULL) {
+    uint16_t x[1], y[1];
+    uint8_t point_num = 0;
+    
+    // Read touch data from CST820
+    esp_lcd_touch_read_data(tp);
+    
+    // Get touch coordinates
+    bool pressed = esp_lcd_touch_get_coordinates(tp, x, y, NULL, &point_num, 1);
+    
+    if (pressed && point_num > 0) {
+      data->point.x = x[0];
+      data->point.y = y[0];
+      data->state = LV_INDEV_STATE_PR;
+      // printf("Touch: X=%u Y=%u\r\n", x[0], y[0]);
+    } else {
+      data->state = LV_INDEV_STATE_REL;
+    }
   } else {
     data->state = LV_INDEV_STATE_REL;
   }
-  touch_data.x = 0;
-  touch_data.y = 0;
-  touch_data.points = 0;
-   
 }
 /* Rotate display and touch, when rotated screen in LVGL. Called when driver parameters are updated. */
 void example_lvgl_port_update_callback(lv_disp_drv_t *drv)

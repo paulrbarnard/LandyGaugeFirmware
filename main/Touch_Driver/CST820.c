@@ -228,6 +228,26 @@ static esp_err_t touch_cst820_i2c_write(esp_lcd_touch_handle_t tp, uint16_t reg,
 esp_lcd_touch_handle_t tp = NULL;
 void Touch_Init(void)
 {
+    // Initialize dedicated I2C bus for touch controller (GPIO1/3 per schematic)
+    i2c_config_t i2c_conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = I2C_TOUCH_SDA_IO,
+        .scl_io_num = I2C_TOUCH_SCL_IO,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = I2C_TOUCH_FREQ_HZ,
+    };
+    
+    ESP_ERROR_CHECK(i2c_param_config(I2C_TOUCH_NUM, &i2c_conf));
+    ESP_ERROR_CHECK(i2c_driver_install(I2C_TOUCH_NUM, I2C_MODE_MASTER, 0, 0, 0));
+    ESP_LOGI(TAG, "Touch I2C bus initialized on GPIO%d(SDA)/GPIO%d(SCL)", I2C_TOUCH_SDA_IO, I2C_TOUCH_SCL_IO);
+    
+    // Reset touch controller via EXIO1
+    Set_EXIO(TCA9554_EXIO1, 0);  // Reset low
+    vTaskDelay(pdMS_TO_TICKS(10));
+    Set_EXIO(TCA9554_EXIO1, 1);  // Reset high
+    vTaskDelay(pdMS_TO_TICKS(50));
+    
     // Suppress I2C panel IO error logs (normal during touch polling when not touched)
     esp_log_level_set("lcd_panel.io.i2c", ESP_LOG_NONE);
     
@@ -237,7 +257,7 @@ void Touch_Init(void)
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_CST820_CONFIG();
     ESP_LOGI(TAG, "Initialize touch IO (I2C)");
     /* Touch IO handle */
-    esp_err_t ret = esp_lcd_new_panel_io_i2c((esp_lcd_i2c_bus_handle_t)I2C_MASTER_NUM, &tp_io_config, &tp_io_handle);
+    esp_err_t ret = esp_lcd_new_panel_io_i2c((esp_lcd_i2c_bus_handle_t)I2C_TOUCH_NUM, &tp_io_config, &tp_io_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Touch IO initialization failed: %s (0x%x)", esp_err_to_name(ret), ret);
         ESP_LOGW(TAG, "Touch not available - continuing without touch");

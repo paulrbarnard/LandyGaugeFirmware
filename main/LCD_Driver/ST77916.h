@@ -27,6 +27,16 @@
 #define EXAMPLE_LCD_HEIGHT                  (360)
 #define EXAMPLE_LCD_COLOR_BITS              (16)
 
+// Touch controller I2C bus (separate from other I2C devices)
+#define I2C_TOUCH_NUM                       1              // I2C bus 1 for touch
+#define I2C_TOUCH_SCL_IO                    GPIO_NUM_3     // TP_SCL on GPIO3
+#define I2C_TOUCH_SDA_IO                    GPIO_NUM_1     // TP_SDA on GPIO1
+#define I2C_TOUCH_FREQ_HZ                   400000         // 400kHz
+
+// Touch controller pins (CST816)
+#define I2C_Touch_INT_IO                    (GPIO_NUM_4)   // TP_INT on GPIO4
+#define I2C_Touch_RST_IO                    (GPIO_NUM_NC)  // TP_RST via EXIO1, not direct GPIO
+
 #define ESP_PANEL_HOST_SPI_ID_DEFAULT       (SPI2_HOST)
 #define ESP_PANEL_LCD_SPI_MODE              (0)
 #define ESP_PANEL_LCD_SPI_CLK_HZ            (80 * 1000 * 1000)
