@@ -6,7 +6,7 @@
 #include "artificial_horizon.h"
 #include "lvgl.h"
 #include "esp_log.h"
-#include "warning_beep.h"
+// #include "warning_beep.h"  // Disabled - Buzzer module not available
 #include <math.h>
 #include <stdio.h>
 
@@ -498,19 +498,19 @@ void artificial_horizon_update(float pitch, float roll)
         switch (current_warning_level) {
             case WARNING_RED:
                 // Short beep every 0.5 seconds
-                warning_beep_repeat(BEEP_SHORT, 500);
+                // warning_beep_repeat(BEEP_SHORT, 500);  // Disabled - Buzzer module not available
                 ESP_LOGW(TAG, "RED WARNING: pitch=%.1f, roll=%.1f", abs_pitch, abs_roll);
                 break;
                 
             case WARNING_YELLOW:
                 // Short beep every 2 seconds
-                warning_beep_repeat(BEEP_SHORT, 2000);
+                // warning_beep_repeat(BEEP_SHORT, 2000);  // Disabled - Buzzer module not available
                 ESP_LOGW(TAG, "YELLOW WARNING: pitch=%.1f, roll=%.1f", abs_pitch, abs_roll);
                 break;
                 
             case WARNING_NONE:
                 // Stop beeping
-                warning_beep_stop();
+                // warning_beep_stop();  // Disabled - Buzzer module not available
                 break;
         }
     }

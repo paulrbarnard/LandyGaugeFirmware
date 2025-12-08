@@ -31,6 +31,8 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
 /*Read the touchpad*/
 void example_touchpad_read( lv_indev_drv_t * drv, lv_indev_data_t * data )
 {
+  static bool last_state = false;
+  
   // Read real CST820 touch controller instead of simulated touch
   if (tp != NULL) {
     uint16_t x[1], y[1];
@@ -46,9 +48,14 @@ void example_touchpad_read( lv_indev_drv_t * drv, lv_indev_data_t * data )
       data->point.x = x[0];
       data->point.y = y[0];
       data->state = LV_INDEV_STATE_PR;
-      // printf("Touch: X=%u Y=%u\r\n", x[0], y[0]);
+      if (!last_state) {
+        last_state = true;
+      }
     } else {
       data->state = LV_INDEV_STATE_REL;
+      if (last_state) {
+        last_state = false;
+      }
     }
   } else {
     data->state = LV_INDEV_STATE_REL;
@@ -104,7 +111,7 @@ void LVGL_Init(void)
     disp_drv.flush_cb = example_lvgl_flush_cb;                                                          // Function : copy a buffer's content to a specific area of the display
     disp_drv.drv_update_cb = example_lvgl_port_update_callback;                                         // Function : Rotate display and touch, when rotated screen in LVGL. Called when driver parameters are updated. 
     disp_drv.draw_buf = &disp_buf;                                                                      // LVGL will use this buffer(s) to draw the screens contents
-    disp_drv.full_refresh = 1;                                                                          // Enable full refresh mode with full-size buffers for maximum performance
+    // disp_drv.full_refresh = 1;                                                                       // Disabled - use partial refresh with 1/10 screen buffers
     disp_drv.user_data = panel_handle;                
     ESP_LOGI(TAG_LVGL,"Register display indev to LVGL");                                                  // Custom display driver user data
     disp = lv_disp_drv_register(&disp_drv);     

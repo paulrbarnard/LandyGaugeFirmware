@@ -13,7 +13,7 @@
 static const char *TAG = "CLOCK";
 
 // Display mode - can be changed at runtime
-static bool night_mode = true;  // Switch to night mode for testing
+static bool night_mode = false;  // Day mode (white hands)
 
 // Color definitions - Note: Display expects BGR format, so R and B are swapped
 // lv_color_make(R, G, B) but display reads as BGR
@@ -35,8 +35,8 @@ static inline lv_color_t get_marker_color(void) {
 #define CLOCK_SIZE          360     // Clock diameter - full screen
 #define CLOCK_CENTER_X      180     // Screen center X (480/2)
 #define CLOCK_CENTER_Y      180     // Screen center Y (480/2)
-#define HOUR_HAND_LENGTH    79      // 70% of minute hand length, -10 for clearance
-#define MINUTE_HAND_LENGTH  117     // Reaches inside of hour tick marks, -10 for clearance
+#define HOUR_HAND_LENGTH    84      // 70% of minute hand length, -5 for clearance
+#define MINUTE_HAND_LENGTH  122     // Reaches inside of hour tick marks, -5 for clearance
 #define CENTER_DOT_SIZE     64      // 25% smaller from 85
 
 // LVGL objects
@@ -45,7 +45,7 @@ static lv_obj_t *hour_hand = NULL;
 static lv_obj_t *minute_hand = NULL;
 
 // Update timer
-static TaskHandle_t clock_update_task_handle = NULL;
+static lv_timer_t *clock_timer = NULL;
 
 // Hand points (line coordinates)
 static lv_point_t hour_points[2];
@@ -194,22 +194,17 @@ static void create_hands(void)
 }
 
 /**
- * @brief Task that updates the clock display every second from RTC
+ * @brief Timer callback that updates the clock display every second from RTC
  */
-static void clock_update_task(void *arg)
+static void clock_timer_cb(lv_timer_t *timer)
 {
     datetime_t current_time;
     
-    while (1) {
-        // Read current time from RTC
-        PCF85063_Read_Time(&current_time);
-        
-        // Update clock display
-        clock_update(current_time.hour, current_time.minute, current_time.second);
-        
-        // Update every second
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+    // Read current time from RTC
+    PCF85063_Read_Time(&current_time);
+    
+    // Update clock display
+    clock_update(current_time.hour, current_time.minute, current_time.second);
 }
 
 void clock_init(void)
@@ -229,22 +224,20 @@ void clock_init(void)
     ESP_LOGI(TAG, "Initial time set to %02d:%02d:%02d", 
              current_time.hour, current_time.minute, current_time.second);
     
-    // Create task to update clock every second
-    xTaskCreatePinnedToCore(
-        clock_update_task,
-        "Clock Update",
-        4096,
-        NULL,
-        5,  // Medium priority
-        &clock_update_task_handle,
-        1   // Core 1
-    );
+    // Create LVGL timer to update clock every second (1000ms)
+    clock_timer = lv_timer_create(clock_timer_cb, 1000, NULL);
+    if (clock_timer == NULL) {
+        ESP_LOGE(TAG, "Failed to create clock timer");
+        return;
+    }
     
-    ESP_LOGI(TAG, "Clock initialized and update task started");
+    ESP_LOGI(TAG, "Clock initialized with LVGL timer");
 }
 
 void clock_update(uint8_t hour, uint8_t minute, uint8_t second)
 {
+    if (!hour_hand || !minute_hand) return;
+    
     // Calculate angles (0 degrees = 12 o'clock, clockwise)
     // Subtract 90 to start at 12 o'clock position
     float hour_angle = ((hour % 12) * 30 + minute * 0.5 - 90) * M_PI / 180.0;
@@ -293,10 +286,10 @@ void clock_set_visible(bool visible)
 
 void clock_cleanup(void)
 {
-    // Stop the update task
-    if (clock_update_task_handle != NULL) {
-        vTaskDelete(clock_update_task_handle);
-        clock_update_task_handle = NULL;
+    // Stop the update timer
+    if (clock_timer != NULL) {
+        lv_timer_del(clock_timer);
+        clock_timer = NULL;
     }
     
     if (hour_hand) lv_obj_del(hour_hand);

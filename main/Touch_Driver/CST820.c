@@ -1,4 +1,5 @@
 #include "CST820.h"
+#include "ST77916.h"  // For I2C_TOUCH_NUM definition
 
 #define POINT_NUM_MAX       (1)
 
@@ -95,7 +96,7 @@ static esp_err_t read_data(esp_lcd_touch_handle_t tp)
     assert(tp != NULL);
 
     uint8_t write_buf = 0x01;
-    i2c_master_write_to_device(0, DATA_START_REG, &write_buf, 1, 1000 / portTICK_PERIOD_MS);
+    i2c_master_write_to_device(I2C_TOUCH_NUM, DATA_START_REG, &write_buf, 1, 1000 / portTICK_PERIOD_MS);
 
     touch_cst820_i2c_write(tp, 0xFE, &close, 1);
 

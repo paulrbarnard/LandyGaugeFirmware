@@ -229,7 +229,7 @@ static int QSPI_Init(void) {
     .cs_gpio_num = ESP_PANEL_LCD_SPI_IO_CS,
     .dc_gpio_num = -1,
     .spi_mode = ESP_PANEL_LCD_SPI_MODE,
-    .pclk_hz = 3 * 1000 * 1000,
+    .pclk_hz = 3 * 1000 * 1000,  // Start at 3MHz for init
     .trans_queue_depth = ESP_PANEL_LCD_SPI_TRANS_QUEUE_SZ,
     .on_color_trans_done = NULL,
     .user_ctx = NULL,
