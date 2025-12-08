@@ -11,7 +11,8 @@
 #include "ST77916.h"
 #include "Simulated_Gesture.h"
 
-#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * EXAMPLE_LCD_HEIGHT / 20)
+// Full screen buffers in PSRAM for maximum performance (360x360 = 129,600 pixels)
+#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * EXAMPLE_LCD_HEIGHT)
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 
 extern lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)

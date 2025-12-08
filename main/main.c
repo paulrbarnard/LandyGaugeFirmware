@@ -10,6 +10,8 @@
 #include "PCM5101.h"
 #include "MIC_Speech.h"
 #include "CST820.h"
+#include "clock.h"
+#include "wifi_ntp.h"
 
 void Driver_Loop(void *parameter)
 {
@@ -55,8 +57,17 @@ void app_main(void)
     // Play_Music("/sdcard","AAA.mp3");
     LVGL_Init();   // returns the screen object
 
-// /********************* Demo *********************/
-    Lvgl_Example1();
+// /********************* Clock Display *********************/
+    // Initialize and display clock with current RTC time (before WiFi/NTP sync)
+    clock_init();
+    
+    // Initialize WiFi and sync time from NTP in background
+    if (wifi_ntp_init()) {
+        ESP_LOGI("MAIN", "WiFi connected");
+        if (wifi_ntp_sync_time()) {
+            ESP_LOGI("MAIN", "Time synchronized from NTP");
+        }
+    }
     // Simulated_Touch_Init();  // Disabled - using real CST820 touch now
     // lv_demo_widgets();
     // lv_demo_keypad_encoder();

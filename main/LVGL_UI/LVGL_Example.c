@@ -1,8 +1,9 @@
 #include "LVGL_Example.h"
-#include "LVGL_Music.h"
+// #include "LVGL_Music.h"
 #include <demos/lv_demos.h>
-#include <demos/music/lv_demo_music_main.h>
-#include <demos/music/lv_demo_music_list.h>
+// #include <demos/music/lv_demo_music_main.h>
+// #include <demos/music/lv_demo_music_list.h>
+#include "clock.h"
 
 
 /**********************
@@ -18,7 +19,7 @@ typedef enum {
  *  STATIC PROTOTYPES
  **********************/
 static void Onboard_create(lv_obj_t * parent);
-static void Music_create(lv_obj_t * parent);
+static void Clock_create(lv_obj_t * parent);
 
 static void ta_event_cb(lv_event_t * e);
 void example1_increase_lvgl_tick(lv_timer_t * t);
@@ -367,12 +368,10 @@ void example1_increase_lvgl_tick(lv_timer_t * t)
   lv_slider_set_value(Backlight_slider, LCD_Backlight, LV_ANIM_ON); 
   LVGL_Backlight_adjustment(LCD_Backlight);
 }
-static void Music_create(lv_obj_t * parent)
+static void Clock_create(lv_obj_t * parent)
 {
-  original_screen_bg_color = lv_obj_get_style_bg_color(parent, 0);
-  lv_obj_set_style_bg_color(parent, lv_color_hex(0x343247), 0);
-
-  _lv_demo_music_main_create(parent);
+  // Create analog clock display
+  clock_init();
 }
 
 

@@ -104,6 +104,7 @@ void LVGL_Init(void)
     disp_drv.flush_cb = example_lvgl_flush_cb;                                                          // Function : copy a buffer's content to a specific area of the display
     disp_drv.drv_update_cb = example_lvgl_port_update_callback;                                         // Function : Rotate display and touch, when rotated screen in LVGL. Called when driver parameters are updated. 
     disp_drv.draw_buf = &disp_buf;                                                                      // LVGL will use this buffer(s) to draw the screens contents
+    disp_drv.full_refresh = 1;                                                                          // Enable full refresh mode with full-size buffers for maximum performance
     disp_drv.user_data = panel_handle;                
     ESP_LOGI(TAG_LVGL,"Register display indev to LVGL");                                                  // Custom display driver user data
     disp = lv_disp_drv_register(&disp_drv);     
