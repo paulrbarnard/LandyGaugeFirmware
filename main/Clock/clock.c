@@ -43,7 +43,7 @@ static inline lv_color_t get_marker_color(void)
 #define MINUTE_HAND_LENGTH 122          // Reaches inside of hour tick marks, -5 for clearance
 #define CENTER_DOT_SIZE 64              // 25% smaller from 85
 #define SHADOW_WIDTH 10                 // Shadow width for 3D effects
-#define SHADOW_OFFSET 4                 // Shadow offset for 3D effects
+#define SHADOW_OFFSET 13                 // Shadow offset for 3D effects
 
 // LVGL objects
 static lv_obj_t *clock_face = NULL;
@@ -109,20 +109,6 @@ static void draw_clock_face(void)
     int center_x = CLOCK_CENTER_X;
     int center_y = CLOCK_CENTER_Y;
 
-    // Create shadow effect for recessed appearance (dark top-left shadow)
-    //  lv_obj_t *shadow_dark = lv_obj_create(clock_face);
-    //  lv_obj_set_size(shadow_dark, CLOCK_SIZE - SHADOW_WIDTH, CLOCK_SIZE - SHADOW_WIDTH);
-    //  lv_obj_set_style_radius(shadow_dark, LV_RADIUS_CIRCLE, 0);
-    //  lv_obj_set_style_bg_color(shadow_dark, COLOR_FACE, 0);
-    //  lv_obj_set_style_border_width(shadow_dark, 1, 0);
-    //  lv_obj_set_style_border_color(shadow_dark, COLOR_FACE, 0);
-    //  lv_obj_align(shadow_dark, LV_ALIGN_TOP_LEFT, 0, 0);
-    //  lv_obj_set_style_shadow_width(shadow_dark, SHADOW_WIDTH, 0);
-    //  lv_obj_set_style_shadow_opa(shadow_dark, LV_OPA_70, 0);
-    //  lv_obj_set_style_shadow_color(shadow_dark, lv_color_black(), 0);
-    //  lv_obj_set_style_shadow_ofs_x(shadow_dark, -SHADOW_WIDTH, 0);
-    //  lv_obj_set_style_shadow_ofs_y(shadow_dark, -SHADOW_WIDTH, 0);
-    //  ESP_LOGI(TAG, "shadow_dark created");
 
     // Draw hour markers and numbers
     for (int i = 0; i < 12; i++)
@@ -199,6 +185,24 @@ static void draw_clock_face(void)
         }
     }
 
+    // Create shadow effect for recessed appearance (dark top-left shadow)
+     lv_obj_t *shadow_dark = lv_obj_create(clock_face);
+     lv_obj_set_size(shadow_dark, CLOCK_SIZE + SHADOW_WIDTH, CLOCK_SIZE + SHADOW_WIDTH);
+     lv_obj_set_style_radius(shadow_dark, LV_RADIUS_CIRCLE, 0);
+     lv_obj_set_style_bg_color(shadow_dark, COLOR_FACE, 0);
+     lv_obj_set_style_bg_opa(shadow_dark, LV_OPA_TRANSP, 0);   // make the main body transparent
+    lv_obj_set_style_border_width(shadow_dark, 1, 0);
+     lv_obj_set_style_border_color(shadow_dark, COLOR_FACE, 0);
+     lv_obj_align(shadow_dark, LV_ALIGN_TOP_LEFT, -SHADOW_OFFSET, -SHADOW_OFFSET);
+     lv_obj_set_style_shadow_width(shadow_dark, SHADOW_WIDTH, 0);
+     lv_obj_set_style_shadow_opa(shadow_dark, LV_OPA_70, 0);
+     lv_obj_set_style_shadow_color(shadow_dark, lv_color_black(), 0);
+     lv_obj_set_style_shadow_ofs_x(shadow_dark, 4, 0);
+     lv_obj_set_style_shadow_ofs_y(shadow_dark, 4, 0);
+     ESP_LOGI(TAG, "shadow_dark created");
+
+
+
     lv_obj_t *shadow_light = lv_obj_create(clock_face);
     lv_obj_set_size(shadow_light, CLOCK_SIZE + SHADOW_WIDTH, CLOCK_SIZE + SHADOW_WIDTH);
     lv_obj_set_style_radius(shadow_light, LV_RADIUS_CIRCLE, 0);
@@ -206,14 +210,14 @@ static void draw_clock_face(void)
     lv_obj_set_style_bg_opa(shadow_light, LV_OPA_TRANSP, 0);   // make the main body transparent
     lv_obj_set_style_border_width(shadow_light, 1, 0);
     lv_obj_set_style_border_color(shadow_light, COLOR_FACE, 0);
-    lv_obj_align(shadow_light, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_align(shadow_light, LV_ALIGN_BOTTOM_RIGHT,SHADOW_OFFSET, SHADOW_OFFSET);
     //lv_obj_align(shadow_light, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_shadow_width(shadow_light, SHADOW_WIDTH, 0);
     lv_obj_set_style_shadow_spread(shadow_light, SHADOW_WIDTH, 0);
     lv_obj_set_style_shadow_opa(shadow_light, LV_OPA_10, 0);
     lv_obj_set_style_shadow_color(shadow_light, get_hand_color(), 0);
-    lv_obj_set_style_shadow_ofs_x(shadow_light, SHADOW_OFFSET, 0);
-    lv_obj_set_style_shadow_ofs_y(shadow_light, SHADOW_OFFSET, 0);
+    lv_obj_set_style_shadow_ofs_x(shadow_light, -4, 0);
+    lv_obj_set_style_shadow_ofs_y(shadow_light, -4, 0);
     ESP_LOGI(TAG, "shadow_light created");
 
   }
@@ -267,7 +271,7 @@ static void clock_timer_cb(lv_timer_t *timer)
     PCF85063_Read_Time(&current_time);
 
     // Update clock display
-    // clock_update(current_time.hour, current_time.minute, current_time.second);
+    clock_update(current_time.hour, current_time.minute, current_time.second);
 }
 
 void clock_init(void)
