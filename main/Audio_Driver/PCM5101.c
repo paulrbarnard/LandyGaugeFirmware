@@ -2,8 +2,9 @@
 
 static const char *TAG = "AUDIO PCM5101"; 
 
-static i2s_chan_handle_t i2s_tx_chan; 
-static i2s_chan_handle_t i2s_rx_chan; 
+// I2S channel handles (exposed for warning_beep module)
+i2s_chan_handle_t i2s_tx_chan = NULL; 
+static i2s_chan_handle_t i2s_rx_chan = NULL; 
 
 uint8_t Volume = Volume_MAX - 2;
 bool Music_Next_Flag = 0;

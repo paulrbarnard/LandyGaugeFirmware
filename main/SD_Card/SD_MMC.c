@@ -1,4 +1,5 @@
 #include "SD_MMC.h"
+#include <dirent.h>
 
 #define EXAMPLE_MAX_CHAR_SIZE    64
 #define MOUNT_POINT "/sdcard"
@@ -104,6 +105,22 @@ void SD_Init(void)
         return;
     }
     ESP_LOGI(SD_TAG, "Filesystem mounted");
+
+    // List files on SD card for debugging
+    DIR *dir = opendir(MOUNT_POINT);
+    if (dir) {
+        ESP_LOGI(SD_TAG, "=== Files on SD card ===");
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            ESP_LOGI(SD_TAG, "  [%s] %s", 
+                     entry->d_type == DT_DIR ? "DIR" : "FILE", 
+                     entry->d_name);
+        }
+        closedir(dir);
+        ESP_LOGI(SD_TAG, "========================");
+    } else {
+        ESP_LOGE(SD_TAG, "Failed to list SD card directory");
+    }
 
     // Card has been initialized, print its properties
     sdmmc_card_print_info(stdout, card);

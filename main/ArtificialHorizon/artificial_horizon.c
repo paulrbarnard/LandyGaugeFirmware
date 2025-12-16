@@ -7,7 +7,7 @@
 #include "lvgl.h"
 #include "esp_log.h"
 #include "LVGL_Driver/style.h"
-// #include "warning_beep.h"  // Disabled - Buzzer module not available
+#include "WarningBeep/warning_beep.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -42,9 +42,17 @@ static lv_obj_t *center_marker_obj = NULL;
 // Pixels per degree for pitch movement
 #define PIXELS_PER_DEGREE 3.0f
 
-// Current attitude
+// Smoothing filter coefficient (0.0 = no smoothing, 1.0 = instant response)
+// Lower values = more inertia/smoothing, higher values = faster response
+#define SMOOTHING_FACTOR 0.15f
+
+// Current attitude (smoothed values)
 static float current_pitch = 0.0f;
 static float current_roll = 0.0f;
+
+// Raw target values from sensor
+static float target_pitch = 0.0f;
+static float target_roll = 0.0f;
 
 // Warning state tracking
 typedef enum {
@@ -54,6 +62,8 @@ typedef enum {
 } warning_level_t;
 static warning_level_t pitch_warning_level = WARNING_NONE;
 static warning_level_t roll_warning_level = WARNING_NONE;
+static warning_level_t current_roll_audio_level = WARNING_NONE;   // Track active roll audio level
+static warning_level_t current_pitch_audio_level = WARNING_NONE;  // Track active pitch audio level
 
 /**
  * @brief Get warning color for pitch based on current pitch angle
@@ -410,6 +420,11 @@ void artificial_horizon_init(void)
 {
     ESP_LOGI(TAG, "Initializing artificial horizon");
     
+    // Initialize warning beep system
+    warning_beep_init();
+    current_roll_audio_level = WARNING_NONE;
+    current_pitch_audio_level = WARNING_NONE;
+    
     // Set initial colors (night mode will be set by default)
     sky_color = lv_color_make(0, 50, 100);      // Dark blue for night sky
     ground_color = lv_color_make(60, 40, 20);   // Dark brown for night ground
@@ -481,12 +496,21 @@ void artificial_horizon_update(float pitch, float roll)
     if (roll > 180.0f) roll = 180.0f;
     if (roll < -180.0f) roll = -180.0f;
     
-    // Check if values actually changed
-    bool pitch_changed = (pitch != current_pitch);
-    bool roll_changed = (roll != current_roll);
+    // Store target values
+    target_pitch = pitch;
+    target_roll = roll;
     
-    current_pitch = pitch;
-    current_roll = roll;
+    // Apply exponential moving average (EMA) smoothing for inertia effect
+    // new_value = old_value + factor * (target - old_value)
+    float prev_pitch = current_pitch;
+    float prev_roll = current_roll;
+    
+    current_pitch = current_pitch + SMOOTHING_FACTOR * (target_pitch - current_pitch);
+    current_roll = current_roll + SMOOTHING_FACTOR * (target_roll - current_roll);
+    
+    // Check if smoothed values changed significantly (threshold for redraw)
+    bool pitch_changed = (fabsf(current_pitch - prev_pitch) > 0.1f);
+    bool roll_changed = (fabsf(current_roll - prev_roll) > 0.1f);
     
     // Update line colors based on individual attitude warnings
     lv_color_t new_pitch_color = get_pitch_warning_color();
@@ -538,6 +562,38 @@ void artificial_horizon_update(float pitch, float roll)
             ESP_LOGW(TAG, "ROLL RED WARNING: roll=%.1f", abs_roll);
         } else if (roll_warning_level == WARNING_YELLOW) {
             ESP_LOGW(TAG, "ROLL YELLOW WARNING: roll=%.1f", abs_roll);
+        }
+    }
+    
+    // Update ROLL warning audio (beep + MP3)
+    if (new_roll_warning != current_roll_audio_level) {
+        current_roll_audio_level = new_roll_warning;
+        
+        if (current_roll_audio_level == WARNING_RED) {
+            warning_beep_start(WARNING_LEVEL_RED);
+            ESP_LOGI(TAG, "Roll DANGER warning started (DangerRoll.mp3)");
+        } else if (current_roll_audio_level == WARNING_YELLOW) {
+            warning_beep_start(WARNING_LEVEL_YELLOW);
+            ESP_LOGI(TAG, "Roll WARNING started (WarningRoll.mp3)");
+        } else {
+            warning_beep_start(WARNING_LEVEL_NONE);  // Stop roll audio
+            ESP_LOGI(TAG, "Roll warning audio stopped");
+        }
+    }
+    
+    // Update PITCH warning audio (beeps only)
+    if (new_pitch_warning != current_pitch_audio_level) {
+        current_pitch_audio_level = new_pitch_warning;
+        
+        if (current_pitch_audio_level == WARNING_RED) {
+            warning_pitch_start(WARNING_LEVEL_RED);
+            ESP_LOGI(TAG, "Pitch RED beeps started (every 500ms)");
+        } else if (current_pitch_audio_level == WARNING_YELLOW) {
+            warning_pitch_start(WARNING_LEVEL_YELLOW);
+            ESP_LOGI(TAG, "Pitch YELLOW beeps started (every 3s)");
+        } else {
+            warning_pitch_start(WARNING_LEVEL_NONE);  // Stop pitch beeps
+            ESP_LOGI(TAG, "Pitch warning beeps stopped");
         }
     }
     
@@ -605,6 +661,11 @@ void artificial_horizon_set_visible(bool visible)
 void artificial_horizon_cleanup(void)
 {
     ESP_LOGI(TAG, "Cleaning up artificial horizon");
+    
+    // Stop warning beeps
+    warning_beep_stop();
+    current_roll_audio_level = WARNING_NONE;
+    current_pitch_audio_level = WARNING_NONE;
     
     // Delete the main container (this also deletes all children)
     if (horizon_container) {
