@@ -1,4 +1,6 @@
+
 #pragma once
+#include <stdint.h>
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -76,3 +78,5 @@ void LCD_Init(void);
 
 void Backlight_Init(void);
 void Set_Backlight(uint8_t Light);
+void ST77916_FillScreen(uint16_t color);
+

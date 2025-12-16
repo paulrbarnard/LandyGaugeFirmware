@@ -4,15 +4,14 @@
 #include "SD_MMC.h"
 #include "Wireless.h"
 #include "TCA9554PWR.h"
-#include "LVGL_Example.h"
 #include "BAT_Driver.h"
 #include "PWR_Key.h"
 #include "PCM5101.h"
-#include "MIC_Speech.h"
 #include "CST820.h"
 #include "clock.h"
 #include "wifi_ntp.h"
 #include "artificial_horizon.h"
+#include "Tilt/tilt.h"
 #include <math.h>
 
 
@@ -20,14 +19,32 @@
 typedef enum {
     GAUGE_CLOCK = 0,
     GAUGE_HORIZON,
+    GAUGE_TILT,
     GAUGE_COUNT
 } gauge_type_t;
 
 static gauge_type_t current_gauge = GAUGE_CLOCK;
-static lv_obj_t *touch_overlay = NULL;  // Global overlay reference  // Default to clock on reset
+static lv_obj_t *touch_overlay = NULL;  // Global overlay reference
+static bool test_night_mode = true;     // Track day/night mode for testing
 
-// Forward declaration
+// Forward declarations
 void switch_gauge(gauge_type_t new_gauge);
+void set_all_gauges_night_mode(bool night_mode);
+static void screen_tap_event_handler(lv_event_t * e);  // Forward declare
+
+// Helper function to create the touch overlay
+static void create_touch_overlay(void)
+{
+    lv_obj_t *screen = lv_scr_act();
+    touch_overlay = lv_obj_create(screen);
+    lv_obj_set_size(touch_overlay, 360, 360);
+    lv_obj_set_pos(touch_overlay, 0, 0);
+    lv_obj_set_style_bg_opa(touch_overlay, LV_OPA_TRANSP, 0);  // Transparent
+    lv_obj_set_style_border_width(touch_overlay, 0, 0);  // No border
+    lv_obj_clear_flag(touch_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(touch_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(touch_overlay, screen_tap_event_handler, LV_EVENT_PRESSED, NULL);
+}
 
 // Touch event handler for gauge cycling
 static void screen_tap_event_handler(lv_event_t * e)
@@ -38,8 +55,16 @@ static void screen_tap_event_handler(lv_event_t * e)
     
     // Only respond to PRESSED event (finger down) to avoid spam
     if (code == LV_EVENT_PRESSED) {
-        // Cycle to next gauge
+        // Check if we're about to complete a cycle (going back to first gauge)
         gauge_type_t next_gauge = (current_gauge + 1) % GAUGE_COUNT;
+        
+        // If cycling back to first gauge, toggle day/night mode
+        if (next_gauge == GAUGE_CLOCK && current_gauge != GAUGE_CLOCK) {
+            test_night_mode = !test_night_mode;
+            ESP_LOGI("MAIN", "Completed gauge cycle - switching to %s mode", 
+                     test_night_mode ? "NIGHT" : "DAY");
+        }
+        
         ESP_LOGI("MAIN", "Touch PRESSED - switching from gauge %d to %d", current_gauge, next_gauge);
         switch_gauge(next_gauge);
     }
@@ -47,52 +72,71 @@ static void screen_tap_event_handler(lv_event_t * e)
 
 void switch_gauge(gauge_type_t new_gauge)
 {
-    ESP_LOGI("MAIN", "switch_gauge called: current=%d, new=%d", current_gauge, new_gauge);
+    ESP_LOGI("MAIN", "switch_gauge called: current=%d, new=%d, night_mode=%d", 
+             current_gauge, new_gauge, test_night_mode);
     
     if (new_gauge == current_gauge) {
         ESP_LOGI("MAIN", "Already on gauge %d, ignoring", new_gauge);
         return;
     }
     
-    // Hide current gauge
+    // Hide/cleanup current gauge
     switch (current_gauge) {
         case GAUGE_CLOCK:
-            ESP_LOGI("MAIN", "Hiding clock");
-            clock_set_visible(false);
+            ESP_LOGI("MAIN", "Cleaning up clock");
+            clock_cleanup();
             break;
         case GAUGE_HORIZON:
-            ESP_LOGI("MAIN", "Hiding horizon");
-            artificial_horizon_set_visible(false);
+            ESP_LOGI("MAIN", "Cleaning up horizon");
+            artificial_horizon_cleanup();
             break;
+        // case GAUGE_TILT:
+        //     ESP_LOGI("MAIN", "Cleaning up tilt");
+        //     tilt_cleanup();
+        //     break;
         default:
             break;
     }
     
-    // Show new gauge
+    // Clear the screen to remove any residual content (this deletes touch_overlay too)
+    lv_obj_clean(lv_scr_act());
+    touch_overlay = NULL;  // Mark as deleted
+    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);  // Pure black background
+    lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);
+    lv_obj_invalidate(lv_scr_act());
+    ESP_LOGI("MAIN", "Screen cleared");
+    
+    // Initialize and show new gauge with current night mode setting
     current_gauge = new_gauge;
     switch (current_gauge) {
         case GAUGE_CLOCK:
-            ESP_LOGI("MAIN", "Showing clock");
-            clock_set_visible(true);
+            ESP_LOGI("MAIN", "Initializing clock (%s mode)", test_night_mode ? "night" : "day");
+            clock_init();
+            clock_set_night_mode(test_night_mode);
             break;
         case GAUGE_HORIZON:
-            ESP_LOGI("MAIN", "Showing horizon");
-            artificial_horizon_set_visible(true);
+            ESP_LOGI("MAIN", "Initializing horizon (%s mode)", test_night_mode ? "night" : "day");
+            artificial_horizon_init();
+            artificial_horizon_set_night_mode(test_night_mode);
+            break;
+        case GAUGE_TILT:
+            ESP_LOGI("MAIN", "Initializing tilt");
+            tilt_init();
+            // TODO: Add tilt_set_night_mode if implemented
             break;
         default:
             break;
     }
     
-    // Bring touch overlay back to front after gauge switch
-    if (touch_overlay != NULL) {
-        lv_obj_move_foreground(touch_overlay);
-        // Also ensure it's clickable
-        lv_obj_add_flag(touch_overlay, LV_OBJ_FLAG_CLICKABLE);
-        ESP_LOGI("MAIN", "Touch overlay moved to foreground");
-    }
+    // Recreate touch overlay on top of the new gauge
+    create_touch_overlay();
+    ESP_LOGI("MAIN", "Touch overlay recreated");
     
-    ESP_LOGI("MAIN", "Switched to %s", 
-             current_gauge == GAUGE_CLOCK ? "Clock" : "Horizon");
+    ESP_LOGI("MAIN", "Switched to %s (%s mode)", 
+             current_gauge == GAUGE_CLOCK ? "Clock" :
+             current_gauge == GAUGE_HORIZON ? "Horizon" :
+             current_gauge == GAUGE_TILT ? "Tilt" : "Unknown",
+             test_night_mode ? "night" : "day");
 }
 
 void Driver_Loop(void *parameter)
@@ -126,6 +170,8 @@ void Driver_Loop(void *parameter)
     }
     vTaskDelete(NULL);
 }
+
+
 void Driver_Init(void)
 {
     PWR_Init();
@@ -148,23 +194,18 @@ void Driver_Init(void)
 void app_main(void)
 {
     Driver_Init();
-
     SD_Init();
     Touch_Init();  // Initialize touch BEFORE display to avoid GPIO conflict
     LCD_Init();
     Audio_Init();
-    // MIC_Speech_init();  // Wake word: "Hi ESP" - TODO: Fix model partition format
-    // Play_Music("/sdcard","AAA.mp3");
     LVGL_Init();   // returns the screen object
 
-// /********************* Gauge Displays *********************/
+    // ********************* Gauge Displays *********************
     // Initialize clock and display with current RTC time (before WiFi/NTP sync)
     clock_init();
     clock_set_visible(true);  // Clock visible by default
     
-    // Initialize artificial horizon (hidden by default)
-    artificial_horizon_init();
-    artificial_horizon_set_visible(false);
+    // Other gauges will be initialized on-demand when switching
     
     // Initialize WiFi and sync time from NTP in background
     if (wifi_ntp_init()) {
@@ -173,26 +214,12 @@ void app_main(void)
             ESP_LOGI("MAIN", "Time synchronized from NTP");
         }
     }
-    
     ESP_LOGI("MAIN", "Gauges initialized - Clock visible, use switch_gauge() to change");
     
     // Create a transparent full-screen overlay to catch touch events
-    lv_obj_t *screen = lv_scr_act();
-    touch_overlay = lv_obj_create(screen);
-    lv_obj_set_size(touch_overlay, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_pos(touch_overlay, 0, 0);
-    lv_obj_set_style_bg_opa(touch_overlay, LV_OPA_TRANSP, 0);  // Transparent
-    lv_obj_set_style_border_width(touch_overlay, 0, 0);  // No border
-    lv_obj_clear_flag(touch_overlay, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(touch_overlay, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(touch_overlay, screen_tap_event_handler, LV_EVENT_PRESSED, NULL);
+    create_touch_overlay();
     ESP_LOGI("MAIN", "Touch overlay created for gauge cycling");
-    // Simulated_Touch_Init();  // Disabled - using real CST820 touch now
-    // lv_demo_widgets();
-    // lv_demo_keypad_encoder();
-    // lv_demo_benchmark();
-    // lv_demo_stress();
-    // lv_demo_music();
+   
 
     while (1) {
         // raise the task priority of LVGL and/or reduce the handler period can improve the performance

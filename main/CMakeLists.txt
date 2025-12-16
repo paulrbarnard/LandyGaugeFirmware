@@ -3,15 +3,17 @@ idf_component_register(
                               "./main.c" 
                               "./EXIO/TCA9554PWR.c"
                               "./Audio_Driver/PCM5101.c" 
-                              "./MIC_Driver/MIC_Speech.c" 
+                              
                               "./LCD_Driver/esp_lcd_st77916/esp_lcd_st77916.c" 
                               "./LCD_Driver/ST77916.c"       
-                              "./Simulated_Gesture/Simulated_Gesture.c"
+                              
                               "./Touch_Driver/CST820.c"
                               "./Touch_Driver/esp_lcd_touch/esp_lcd_touch.c"
                               "./LVGL_Driver/LVGL_Driver.c"
+                              "./LVGL_Driver/styles.c"
                               "./Clock/clock.c"
                               "./WiFi_NTP/wifi_ntp.c"
+                              "./logo.c"
                               "./ArtificialHorizon/artificial_horizon.c"
                               "./SD_Card/SD_MMC.c" 
                               "./I2C_Driver/I2C_Driver.c"
@@ -20,17 +22,18 @@ idf_component_register(
                               "./BAT_Driver/BAT_Driver.c"
                               "./PWR_Key/PWR_Key.c"
                               "./Wireless/Wireless.c"
+                              "./Tilt/tilt.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
-                              "./MIC_Driver" 
+                              
                               "./LCD_Driver/esp_lcd_st77916" 
                               "./LCD_Driver"   
-                              "./Simulated_Gesture"
+                              
                               "./Touch_Driver"
                               "./Touch_Driver/esp_lcd_touch"
                               "./LVGL_Driver" 
-                              "./LVGL_UI" 
+                              
                               "./Clock"
                               "./WiFi_NTP"
                               "./ArtificialHorizon"
@@ -38,6 +41,7 @@ idf_component_register(
                               "./SD_Card" 
                               "./I2C_Driver"
                               "./PCF85063"
+                              "./Tilt"
                               "./QMI8658"
                               "./BAT_Driver"
                               "./PWR_Key"

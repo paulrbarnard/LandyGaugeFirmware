@@ -9,29 +9,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <math.h>
+#include "LVGL_Driver/style.h"
 
 static const char *TAG = "CLOCK";
 
 // Display mode - can be changed at runtime
-static bool night_mode = false; // Day mode (white hands)
+static bool night_mode = true; // Night mode (green hands)
 
-// Color definitions - Note: Display expects BGR format, so R and B are swapped
-// lv_color_make(R, G, B) but display reads as BGR
-#define COLOR_BACKGROUND lv_color_make(20, 20, 20) // Very dark grey (equal RGB = grey)
-#define COLOR_FACE lv_color_make(40, 40, 40)       // Dark grey (equal RGB = grey)
-#define COLOR_WHITE lv_color_make(255, 255, 255)   // White (equal RGB = white)
-#define COLOR_GREEN lv_color_make(0, 255, 0)       // Green
-
-// Color helper functions
-static inline lv_color_t get_hand_color(void)
-{
-    return night_mode ? COLOR_GREEN : COLOR_WHITE;
-}
-
-static inline lv_color_t get_marker_color(void)
-{
-    return night_mode ? COLOR_GREEN : COLOR_WHITE;
-}
 
 // Clock dimensions
 #define CLOCK_SIZE 360                  // Clock diameter
@@ -42,8 +26,6 @@ static inline lv_color_t get_marker_color(void)
 #define HOUR_HAND_LENGTH 84             // 70% of minute hand length, -5 for clearance
 #define MINUTE_HAND_LENGTH 122          // Reaches inside of hour tick marks, -5 for clearance
 #define CENTER_DOT_SIZE 64              // 25% smaller from 85
-#define SHADOW_WIDTH 10                 // Shadow width for 3D effects
-#define SHADOW_OFFSET 13                 // Shadow offset for 3D effects
 
 // LVGL objects
 static lv_obj_t *clock_face = NULL;
@@ -57,8 +39,6 @@ static lv_timer_t *clock_timer = NULL;
 static lv_point_t hour_points[2];
 static lv_point_t minute_points[2];
 
-#define DISP_W 360
-#define DISP_H 360
 
 static inline int16_t clamp_x(int16_t x)
 {
@@ -104,6 +84,12 @@ static void draw_clock_face(void)
         lv_obj_move_background(clock_face);
         ESP_LOGI(TAG, "clock_face created and centered");
     }
+    else
+    {
+        // Clean existing children before redrawing (prevents shadow/element accumulation)
+        lv_obj_clean(clock_face);
+        ESP_LOGI(TAG, "clock_face children cleaned for redraw");
+    }
 
     // Get true center from container size
     int center_x = CLOCK_CENTER_X;
@@ -144,7 +130,7 @@ static void draw_clock_face(void)
 
         lv_line_set_points(marker, marker_points, 2);
         lv_obj_set_style_line_width(marker, line_width, 0);
-        lv_obj_set_style_line_color(marker, get_marker_color(), 0);
+        lv_obj_set_style_line_color(marker, get_accent_color(night_mode), 0);
         lv_obj_set_style_line_rounded(marker, false, 0);
         ESP_LOGI(TAG, "Tick mark %d created at (%d,%d)->(%d,%d)", i, marker_points[0].x, marker_points[0].y, marker_points[1].x, marker_points[1].y);
         if (i == 0 || i == 3 || i == 6 || i == 9)
@@ -171,7 +157,7 @@ static void draw_clock_face(void)
                 break;
             }
             lv_label_set_text(num_label, num_text);
-            lv_obj_set_style_text_color(num_label, get_marker_color(), 0);
+            lv_obj_set_style_text_color(num_label, get_accent_color(night_mode), 0);
             lv_obj_set_style_text_font(num_label, &lv_font_montserrat_32, 0);
             int num_x = center_x + cos(angle) * number_radius;
             int num_y = center_y + sin(angle) * number_radius;
@@ -185,40 +171,20 @@ static void draw_clock_face(void)
         }
     }
 
-    // Create shadow effect for recessed appearance (dark top-left shadow)
-     lv_obj_t *shadow_dark = lv_obj_create(clock_face);
-     lv_obj_set_size(shadow_dark, CLOCK_SIZE + SHADOW_WIDTH, CLOCK_SIZE + SHADOW_WIDTH);
-     lv_obj_set_style_radius(shadow_dark, LV_RADIUS_CIRCLE, 0);
-     lv_obj_set_style_bg_color(shadow_dark, COLOR_FACE, 0);
-     lv_obj_set_style_bg_opa(shadow_dark, LV_OPA_TRANSP, 0);   // make the main body transparent
-    lv_obj_set_style_border_width(shadow_dark, 1, 0);
-     lv_obj_set_style_border_color(shadow_dark, COLOR_FACE, 0);
-     lv_obj_align(shadow_dark, LV_ALIGN_TOP_LEFT, -SHADOW_OFFSET, -SHADOW_OFFSET);
-     lv_obj_set_style_shadow_width(shadow_dark, SHADOW_WIDTH, 0);
-     lv_obj_set_style_shadow_opa(shadow_dark, LV_OPA_70, 0);
-     lv_obj_set_style_shadow_color(shadow_dark, lv_color_black(), 0);
-     lv_obj_set_style_shadow_ofs_x(shadow_dark, 4, 0);
-     lv_obj_set_style_shadow_ofs_y(shadow_dark, 4, 0);
-     ESP_LOGI(TAG, "shadow_dark created");
+    // add the logo
+    LV_IMG_DECLARE(logo_img); // from the generated .c file
 
+     lv_obj_t *logo = lv_img_create(clock_face);
+    lv_img_set_src(logo, &logo_img);
+   lv_obj_align(logo, LV_ALIGN_CENTER, 0, 70); // Set y offset below center cap
 
+   // enable recolor
+lv_obj_set_style_img_recolor_opa(logo, LV_OPA_COVER, LV_PART_MAIN);
+// set the recolor color (green)
+lv_obj_set_style_img_recolor(logo, get_accent_color(night_mode), LV_PART_MAIN);
 
-    lv_obj_t *shadow_light = lv_obj_create(clock_face);
-    lv_obj_set_size(shadow_light, CLOCK_SIZE + SHADOW_WIDTH, CLOCK_SIZE + SHADOW_WIDTH);
-    lv_obj_set_style_radius(shadow_light, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(shadow_light, COLOR_FACE, 0);
-    lv_obj_set_style_bg_opa(shadow_light, LV_OPA_TRANSP, 0);   // make the main body transparent
-    lv_obj_set_style_border_width(shadow_light, 1, 0);
-    lv_obj_set_style_border_color(shadow_light, COLOR_FACE, 0);
-    lv_obj_align(shadow_light, LV_ALIGN_BOTTOM_RIGHT,SHADOW_OFFSET, SHADOW_OFFSET);
-    //lv_obj_align(shadow_light, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_shadow_width(shadow_light, SHADOW_WIDTH, 0);
-    lv_obj_set_style_shadow_spread(shadow_light, SHADOW_WIDTH, 0);
-    lv_obj_set_style_shadow_opa(shadow_light, LV_OPA_10, 0);
-    lv_obj_set_style_shadow_color(shadow_light, get_hand_color(), 0);
-    lv_obj_set_style_shadow_ofs_x(shadow_light, -4, 0);
-    lv_obj_set_style_shadow_ofs_y(shadow_light, -4, 0);
-    ESP_LOGI(TAG, "shadow_light created");
+    // Create recessed shadow effects
+    create_gauge_shadows(clock_face, night_mode);
 
   }
 
@@ -230,13 +196,13 @@ static void create_hands(void)
     // Create hour hand
     hour_hand = lv_line_create(clock_face);
     lv_obj_set_style_line_width(hour_hand, 12, 0); // 2x thicker (was 8)
-    lv_obj_set_style_line_color(hour_hand, get_hand_color(), 0);
+    lv_obj_set_style_line_color(hour_hand, get_accent_color(night_mode), 0);
     lv_obj_set_style_line_rounded(hour_hand, true, 0);
 
     // Create minute hand
     minute_hand = lv_line_create(clock_face);
     lv_obj_set_style_line_width(minute_hand, 9, 0); // 2x thicker (was 6)
-    lv_obj_set_style_line_color(minute_hand, get_hand_color(), 0);
+    lv_obj_set_style_line_color(minute_hand, get_accent_color(night_mode), 0);
     lv_obj_set_style_line_rounded(minute_hand, true, 0);
 
     // Create center cap (raised button appearance) - created last to be on top
@@ -253,7 +219,7 @@ static void create_hands(void)
     // Add subtle highlight shadow from top-left for enhanced raised effect
     lv_obj_set_style_shadow_width(center, 10, 0);
     lv_obj_set_style_shadow_opa(center, LV_OPA_30, 0);
-    lv_obj_set_style_shadow_color(center, COLOR_WHITE, 0);
+    lv_obj_set_style_shadow_color(center, get_accent_color(night_mode), 0);
     lv_obj_set_style_shadow_ofs_x(center, -3, 0);
     lv_obj_set_style_shadow_ofs_y(center, -3, 0);
 
@@ -348,10 +314,23 @@ void clock_set_visible(bool visible)
         if (visible)
         {
             lv_obj_clear_flag(clock_face, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(clock_face);  // Ensure clock is on top
+            // Resume the timer when becoming visible
+            if (clock_timer) {
+                lv_timer_resume(clock_timer);
+                // Update immediately to show current time
+                datetime_t current_time;
+                PCF85063_Read_Time(&current_time);
+                clock_update(current_time.hour, current_time.minute, current_time.second);
+            }
         }
         else
         {
             lv_obj_add_flag(clock_face, LV_OBJ_FLAG_HIDDEN);
+            // Pause the timer when hidden to save resources
+            if (clock_timer) {
+                lv_timer_pause(clock_timer);
+            }
         }
     }
 }

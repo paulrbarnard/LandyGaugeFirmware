@@ -39,4 +39,11 @@ void artificial_horizon_set_night_mode(bool night_mode);
  */
 void artificial_horizon_set_visible(bool visible);
 
+/**
+ * @brief Clean up and destroy the artificial horizon
+ * 
+ * Frees all LVGL objects and resets state.
+ */
+void artificial_horizon_cleanup(void);
+
 #endif // ARTIFICIAL_HORIZON_H

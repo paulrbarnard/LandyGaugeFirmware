@@ -9,7 +9,6 @@
 #include "demos/lv_demos.h"
 
 #include "ST77916.h"
-#include "Simulated_Gesture.h"
 
 // LVGL buffer size - 1/3 screen for smoother updates (120 lines x 360 pixels)
 #define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 3))

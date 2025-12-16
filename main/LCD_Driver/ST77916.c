@@ -1,4 +1,8 @@
+#include <stdint.h>
+#include "esp_heap_caps.h"
+#include <stddef.h>
 #include "ST77916.h"
+
 
 #define LCD_OPCODE_WRITE_CMD        (0x02ULL)
 #define LCD_OPCODE_READ_CMD         (0x0BULL)
@@ -196,6 +200,27 @@ static const st77916_lcd_init_cmd_t vendor_specific_init_new[] = {
   {0x29, (uint8_t []){0x00}, 1, 0},
 };
 
+
+/**
+ * @brief Fill the entire ST77916 display with a solid color (RGB565)
+ * @param color RGB565 color value
+ */
+void ST77916_FillScreen(uint16_t color) {
+  static uint16_t *line_buf = NULL;
+  if (!line_buf) {
+    line_buf = heap_caps_malloc(EXAMPLE_LCD_WIDTH * sizeof(uint16_t), MALLOC_CAP_DMA);
+  }
+  if (!line_buf) return;
+  for (int x = 0; x < EXAMPLE_LCD_WIDTH; ++x) {
+    line_buf[x] = color;
+  }
+  for (int y = 0; y < EXAMPLE_LCD_HEIGHT; ++y) {
+    esp_lcd_panel_draw_bitmap(panel_handle, 0, y, EXAMPLE_LCD_WIDTH, y + 1, line_buf);
+  }
+  ESP_LOGI(TAG_LCD, "ST77916 FillScreen");
+}
+
+
 static void ST77916_Reset(void) {
   Set_EXIO(TCA9554_EXIO2, false);
   vTaskDelay(pdMS_TO_TICKS(10));
@@ -320,7 +345,10 @@ void ST77916_Init(void) {
 
 void LCD_Init(void) {
   ST77916_Init();
-  Backlight_Init();
+  // Fill screen with dark grey (RGB565: 0x2104 for RGB 32,32,32)
+  ST77916_FillScreen(0);
+     
+Backlight_Init();
 }
 
 void Backlight_Init(void) {
