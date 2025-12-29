@@ -4,6 +4,7 @@
  */
 
 #pragma once
+#include <stdbool.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -63,5 +64,10 @@ esp_err_t esp_lcd_touch_new_i2c_cst820(const esp_lcd_panel_io_handle_t io, const
 #define I2C_Touch_RST_IO            -1         /*!< GPIO number used for I2C master clock */
 
 extern esp_lcd_touch_handle_t tp;
+extern bool touch_available;  // Runtime flag indicating if touch controller was detected
 
-void Touch_Init(void);
+/**
+ * @brief Initialize the touch controller
+ * @return true if touch controller detected and initialized, false otherwise
+ */
+bool Touch_Init(void);

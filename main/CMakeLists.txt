@@ -9,6 +9,7 @@ idf_component_register(
                               
                               "./Touch_Driver/CST820.c"
                               "./Touch_Driver/esp_lcd_touch/esp_lcd_touch.c"
+                              "./Button_Driver/button_input.c"
                               "./LVGL_Driver/LVGL_Driver.c"
                               "./LVGL_Driver/styles.c"
                               "./Clock/clock.c"
@@ -33,6 +34,7 @@ idf_component_register(
                               
                               "./Touch_Driver"
                               "./Touch_Driver/esp_lcd_touch"
+                              "./Button_Driver"
                               "./LVGL_Driver" 
                               
                               "./Clock"

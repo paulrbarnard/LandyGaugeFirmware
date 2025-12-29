@@ -7,7 +7,8 @@
 #include "BAT_Driver.h"
 #include "PWR_Key.h"
 #include "PCM5101.h"
-#include "CST820.h"
+#include "button_input.h"
+#include "CST820.h"  // Always include - runtime detection
 #include "clock.h"
 #include "wifi_ntp.h"
 #include "artificial_horizon.h"
@@ -24,7 +25,7 @@ typedef enum {
 } gauge_type_t;
 
 static gauge_type_t current_gauge = GAUGE_CLOCK;
-static lv_obj_t *touch_overlay = NULL;  // Global overlay reference
+static lv_obj_t *touch_overlay = NULL;  // Global overlay reference (used only if touch available)
 static bool test_night_mode = true;     // Track day/night mode for testing
 
 // Forward declarations
@@ -32,9 +33,14 @@ void switch_gauge(gauge_type_t new_gauge);
 void set_all_gauges_night_mode(bool night_mode);
 static void screen_tap_event_handler(lv_event_t * e);  // Forward declare
 
-// Helper function to create the touch overlay
+// Forward declaration for input handling
+static void handle_next_gauge_input(void);
+
+// Helper function to create the touch overlay (only called if touch_available)
 static void create_touch_overlay(void)
 {
+    if (!touch_available) return;  // Runtime check
+    
     lv_obj_t *screen = lv_scr_act();
     touch_overlay = lv_obj_create(screen);
     lv_obj_set_size(touch_overlay, 360, 360);
@@ -55,19 +61,25 @@ static void screen_tap_event_handler(lv_event_t * e)
     
     // Only respond to PRESSED event (finger down) to avoid spam
     if (code == LV_EVENT_PRESSED) {
-        // Check if we're about to complete a cycle (going back to first gauge)
-        gauge_type_t next_gauge = (current_gauge + 1) % GAUGE_COUNT;
-        
-        // If cycling back to first gauge, toggle day/night mode
-        if (next_gauge == GAUGE_CLOCK && current_gauge != GAUGE_CLOCK) {
-            test_night_mode = !test_night_mode;
-            ESP_LOGI("MAIN", "Completed gauge cycle - switching to %s mode", 
-                     test_night_mode ? "NIGHT" : "DAY");
-        }
-        
-        ESP_LOGI("MAIN", "Touch PRESSED - switching from gauge %d to %d", current_gauge, next_gauge);
-        switch_gauge(next_gauge);
+        handle_next_gauge_input();
     }
+}
+
+// Common input handler for both touch and button
+static void handle_next_gauge_input(void)
+{
+    // Check if we're about to complete a cycle (going back to first gauge)
+    gauge_type_t next_gauge = (current_gauge + 1) % GAUGE_COUNT;
+    
+    // If cycling back to first gauge, toggle day/night mode
+    if (next_gauge == GAUGE_CLOCK && current_gauge != GAUGE_CLOCK) {
+        test_night_mode = !test_night_mode;
+        ESP_LOGI("MAIN", "Completed gauge cycle - switching to %s mode", 
+                 test_night_mode ? "NIGHT" : "DAY");
+    }
+    
+    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d", current_gauge, next_gauge);
+    switch_gauge(next_gauge);
 }
 
 void switch_gauge(gauge_type_t new_gauge)
@@ -128,9 +140,11 @@ void switch_gauge(gauge_type_t new_gauge)
             break;
     }
     
-    // Recreate touch overlay on top of the new gauge
-    create_touch_overlay();
-    ESP_LOGI("MAIN", "Touch overlay recreated");
+    // Recreate touch overlay on top of the new gauge (if touch available)
+    if (touch_available) {
+        create_touch_overlay();
+        ESP_LOGI("MAIN", "Touch overlay recreated");
+    }
     
     ESP_LOGI("MAIN", "Switched to %s (%s mode)", 
              current_gauge == GAUGE_CLOCK ? "Clock" :
@@ -195,9 +209,17 @@ void app_main(void)
 {
     Driver_Init();
     SD_Init();
-    Touch_Init();  // Initialize touch BEFORE display to avoid GPIO conflict
+    
+    // Try to initialize touch - will auto-detect if touch controller present
+    if (Touch_Init()) {
+        ESP_LOGI("MAIN", "Touch screen detected and enabled");
+    } else {
+        ESP_LOGI("MAIN", "No touch screen detected - button-only mode");
+    }
+    
     LCD_Init();
     Audio_Init();
+    button_input_init();  // Initialize button input (works on all versions)
     LVGL_Init();   // returns the screen object
 
     // ********************* Gauge Displays *********************
@@ -216,12 +238,21 @@ void app_main(void)
     }
     ESP_LOGI("MAIN", "Gauges initialized - Clock visible, use switch_gauge() to change");
     
-    // Create a transparent full-screen overlay to catch touch events
-    create_touch_overlay();
-    ESP_LOGI("MAIN", "Touch overlay created for gauge cycling");
-   
+    // Create touch overlay if touch is available
+    if (touch_available) {
+        create_touch_overlay();
+        ESP_LOGI("MAIN", "Touch overlay created for gauge cycling");
+    }
+
+    ESP_LOGI("MAIN", "Button input active on GPIO%d", CONFIG_BUTTON_NEXT_GPIO);
 
     while (1) {
+        // Check for button press
+        if (button_input_pressed()) {
+            ESP_LOGI("MAIN", "Button pressed - switching gauge");
+            handle_next_gauge_input();
+        }
+        
         // raise the task priority of LVGL and/or reduce the handler period can improve the performance
         vTaskDelay(pdMS_TO_TICKS(10));
         // The task running lv_timer_handler should have lower priority than that running `lv_tick_inc`

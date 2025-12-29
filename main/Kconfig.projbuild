@@ -1,42 +1,23 @@
 menu "Example Configuration"
 
-    choice HARDWARE_VARIANT
-        prompt "Hardware Variant"
-        default HARDWARE_TOUCH_VERSION
-        help
-            Select the hardware variant of the Waveshare ESP32-S3-Touch-LCD-1.85 board.
-
-        config HARDWARE_TOUCH_VERSION
-            bool "Touch Version (with CST820 touch controller)"
-            help
-                Use this option for the touch-enabled version with CST820 capacitive touch.
-                Gauge switching uses touch gestures.
-
-        config HARDWARE_NO_TOUCH_VERSION
-            bool "Non-Touch Version (with external buttons)"
-            help
-                Use this option for the non-touch version.
-                Gauge switching uses external buttons connected to GPIO pins.
-    endchoice
-
-    config USE_TOUCH_CONTROLLER
-        bool
-        default y if HARDWARE_TOUCH_VERSION
-        default n if HARDWARE_NO_TOUCH_VERSION
+    # Touch controller is auto-detected at runtime - no configuration needed
+    # If CST820 touch controller is present, touch input is enabled
+    # Button input is always available
 
     config BUTTON_NEXT_GPIO
-        int "Next Button GPIO (Non-Touch Version)"
-        depends on HARDWARE_NO_TOUCH_VERSION
+        int "Next Gauge Button GPIO"
         default 0
         help
-            GPIO pin number for the "Next Gauge" button on non-touch version.
+            GPIO pin number for the "Next Gauge" button.
+            Works on both touch and non-touch versions.
+            Button should pull low when pressed (active low with internal pull-up).
 
-    config BUTTON_PREV_GPIO
-        int "Previous Button GPIO (Non-Touch Version)"
-        depends on HARDWARE_NO_TOUCH_VERSION
-        default 4
+    config BUTTON_DEBOUNCE_MS
+        int "Button Debounce Time (ms)"
+        default 50
+        range 10 200
         help
-            GPIO pin number for the "Previous Gauge" button on non-touch version.
+            Debounce time for physical button in milliseconds.
 
     config EXAMPLE_DOUBLE_FB
         bool "Use double Frame Buffer (RGB panel internal buffers)"

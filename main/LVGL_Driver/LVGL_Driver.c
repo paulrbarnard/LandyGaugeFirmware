@@ -1,5 +1,5 @@
 #include "LVGL_Driver.h"
-#include "CST820.h"
+#include "CST820.h"  // Always include - runtime detection via touch_available
 
 static const char *TAG_LVGL = "LVGL";
 
@@ -28,13 +28,13 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
     lv_disp_flush_ready(drv);
 }
 
-/*Read the touchpad*/
+/*Read the touchpad - only called if touch_available is true at init time */
 void example_touchpad_read( lv_indev_drv_t * drv, lv_indev_data_t * data )
 {
   static bool last_state = false;
   
   // Read real CST820 touch controller instead of simulated touch
-  if (tp != NULL) {
+  if (tp != NULL && touch_available) {
     uint16_t x[1], y[1];
     uint8_t point_num = 0;
     
@@ -61,6 +61,7 @@ void example_touchpad_read( lv_indev_drv_t * drv, lv_indev_data_t * data )
     data->state = LV_INDEV_STATE_REL;
   }
 }
+
 /* Rotate display and touch, when rotated screen in LVGL. Called when driver parameters are updated. */
 void example_lvgl_port_update_callback(lv_disp_drv_t *drv)
 {
@@ -116,11 +117,17 @@ void LVGL_Init(void)
     ESP_LOGI(TAG_LVGL,"Register display indev to LVGL");                                                  // Custom display driver user data
     disp = lv_disp_drv_register(&disp_drv);     
     
-    lv_indev_drv_init ( &indev_drv );
-    indev_drv.type = LV_INDEV_TYPE_POINTER;
-    indev_drv.disp = disp;
-    indev_drv.read_cb = example_touchpad_read;
-    lv_indev_drv_register( &indev_drv );
+    // Only register touch input device if touch controller was detected
+    if (touch_available) {
+        lv_indev_drv_init ( &indev_drv );
+        indev_drv.type = LV_INDEV_TYPE_POINTER;
+        indev_drv.disp = disp;
+        indev_drv.read_cb = example_touchpad_read;
+        lv_indev_drv_register( &indev_drv );
+        ESP_LOGI(TAG_LVGL, "Touch input device registered");
+    } else {
+        ESP_LOGI(TAG_LVGL, "No touch - skipping touch input device registration");
+    }
 
     /********************* LVGL *********************/
     ESP_LOGI(TAG_LVGL, "Install LVGL tick timer");
