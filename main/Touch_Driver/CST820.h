@@ -58,10 +58,9 @@ esp_err_t esp_lcd_touch_new_i2c_cst820(const esp_lcd_panel_io_handle_t io, const
             .disable_control_phase = 1,                  \
         }                                                \
     }
-    
 
-#define I2C_Touch_INT_IO            16         /*!< GPIO number used for I2C master data  */
-#define I2C_Touch_RST_IO            -1         /*!< GPIO number used for I2C master clock */
+// Note: I2C_Touch_INT_IO and I2C_Touch_RST_IO are defined in ST77916.h
+// GPIO4 for touch interrupt, EXIO1 for touch reset (via TCA9554PWR)
 
 extern esp_lcd_touch_handle_t tp;
 extern bool touch_available;  // Runtime flag indicating if touch controller was detected
