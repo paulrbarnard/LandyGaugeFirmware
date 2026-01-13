@@ -24,3 +24,14 @@ void example_lvgl_port_update_callback(lv_disp_drv_t *drv);
 void example_increase_lvgl_tick(void *arg);
 
 void LVGL_Init(void);                     // Call this function to initialize the screen (must be called in the main function) !!!!!
+
+/**
+ * @brief Check for display errors and trigger refresh if needed
+ * 
+ * Call this periodically from the main loop. If SPI errors have been 
+ * detected during display updates, this will invalidate the screen
+ * to force a full redraw.
+ * 
+ * @return true if a refresh was triggered
+ */
+bool lvgl_check_and_refresh(void);

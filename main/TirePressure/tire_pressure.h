@@ -1,0 +1,70 @@
+/**
+ * @file tire_pressure.h
+ * @brief Tire Pressure gauge display using LVGL
+ */
+
+#ifndef TIRE_PRESSURE_H
+#define TIRE_PRESSURE_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "lvgl.h"
+#include <stdbool.h>
+
+/**
+ * @brief Initialize the tire pressure gauge display
+ * Creates the gauge face with the roof image centered
+ */
+void tire_pressure_init(void);
+
+/**
+ * @brief Set tire pressure display mode (day/night)
+ * @param is_night_mode true for night mode (green), false for day mode (white)
+ */
+void tire_pressure_set_night_mode(bool is_night_mode);
+
+/**
+ * @brief Show or hide the tire pressure gauge
+ * @param visible true to show, false to hide
+ */
+void tire_pressure_set_visible(bool visible);
+
+/**
+ * @brief Set the pressure value for a specific wheel
+ * @param wheel 0=front-left, 1=front-right, 2=rear-left, 3=rear-right
+ * @param pressure_psi Pressure value in PSI (will be converted if units are bar)
+ */
+void tire_pressure_set_value(int wheel, float pressure_psi);
+
+/**
+ * @brief Set all four tire pressure values at once
+ * @param fl Front-left pressure in PSI
+ * @param fr Front-right pressure in PSI
+ * @param rl Rear-left pressure in PSI
+ * @param rr Rear-right pressure in PSI
+ */
+void tire_pressure_set_all_values(float fl, float fr, float rl, float rr);
+
+/**
+ * @brief Toggle pressure units between PSI and Bar
+ */
+void tire_pressure_toggle_units(void);
+
+/**
+ * @brief Set pressure units
+ * @param use_bar true for Bar, false for PSI
+ */
+void tire_pressure_set_units_bar(bool use_bar);
+
+/**
+ * @brief Clean up tire pressure gauge resources
+ */
+void tire_pressure_cleanup(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // TIRE_PRESSURE_H

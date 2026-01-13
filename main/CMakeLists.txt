@@ -15,6 +15,8 @@ idf_component_register(
                               "./Clock/clock.c"
                               "./WiFi_NTP/wifi_ntp.c"
                               "./logo.c"
+                              "./110Roof150w.c"
+                              "./110RoofDark150w.c"
                               "./ArtificialHorizon/artificial_horizon.c"
                               "./WarningBeep/warning_beep.c"
                               "./SD_Card/SD_MMC.c" 
@@ -25,6 +27,7 @@ idf_component_register(
                               "./PWR_Key/PWR_Key.c"
                               "./Wireless/Wireless.c"
                               "./Tilt/tilt.c"
+                              "./TirePressure/tire_pressure.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
@@ -46,6 +49,7 @@ idf_component_register(
                               "./I2C_Driver"
                               "./PCF85063"
                               "./Tilt"
+                              "./TirePressure"
                               "./QMI8658"
                               "./BAT_Driver"
                               "./PWR_Key"

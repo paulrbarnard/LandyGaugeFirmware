@@ -3,6 +3,12 @@
 
 static const char *TAG_LVGL = "LVGL";
 
+// Periodic display refresh to prevent accumulated display corruption
+// Note: SPI queue errors are logged internally by ESP-IDF but esp_lcd_panel_draw_bitmap()
+// returns ESP_OK even when queue errors occur (async error), so we can't detect them.
+// Instead, we do periodic preventive refreshes.
+static uint32_t last_refresh_ms = 0;
+#define PERIODIC_REFRESH_INTERVAL_MS 30000  // Force full refresh every 30 seconds
     
 
 lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)
@@ -24,7 +30,7 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
     int offsety1 = area->y1;
     int offsety2 = area->y2;
     // copy a buffer's content to a specific area of the display
-    esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 +1, offsety2 + 1, color_map);
+    esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
     lv_disp_flush_ready(drv);
 }
 
@@ -141,4 +147,31 @@ void LVGL_Init(void)
     ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(lvgl_tick_timer, EXAMPLE_LVGL_TICK_PERIOD_MS * 1000));
 
+}
+
+/**
+ * @brief Periodic display refresh to prevent accumulated corruption
+ * 
+ * Call this periodically from the main loop. Forces a full screen 
+ * refresh at regular intervals to clean up any display shredding
+ * caused by SPI queue errors (which we cannot detect via return codes).
+ * 
+ * @return true if a refresh was triggered
+ */
+bool lvgl_check_and_refresh(void)
+{
+    uint32_t now_ms = lv_tick_get();
+    
+    // Check for periodic preventive refresh
+    if ((now_ms - last_refresh_ms) >= PERIODIC_REFRESH_INTERVAL_MS) {
+        last_refresh_ms = now_ms;
+        
+        // Invalidate the entire screen to force redraw
+        lv_obj_invalidate(lv_scr_act());
+        
+        ESP_LOGI(TAG_LVGL, "Periodic display refresh (every %d sec)", PERIODIC_REFRESH_INTERVAL_MS / 1000);
+        return true;
+    }
+    
+    return false;
 }

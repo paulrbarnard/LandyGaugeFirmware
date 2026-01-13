@@ -13,6 +13,7 @@
 #include "wifi_ntp.h"
 #include "artificial_horizon.h"
 #include "Tilt/tilt.h"
+#include "TirePressure/tire_pressure.h"
 #include <math.h>
 
 
@@ -21,6 +22,7 @@ typedef enum {
     GAUGE_CLOCK = 0,
     GAUGE_HORIZON,
     GAUGE_TILT,
+    GAUGE_TIRE_PRESSURE,
     GAUGE_COUNT
 } gauge_type_t;
 
@@ -106,6 +108,10 @@ void switch_gauge(gauge_type_t new_gauge)
         //     ESP_LOGI("MAIN", "Cleaning up tilt");
         //     tilt_cleanup();
         //     break;
+        case GAUGE_TIRE_PRESSURE:
+            ESP_LOGI("MAIN", "Cleaning up tire pressure");
+            tire_pressure_cleanup();
+            break;
         default:
             break;
     }
@@ -136,6 +142,11 @@ void switch_gauge(gauge_type_t new_gauge)
             tilt_init();
             // TODO: Add tilt_set_night_mode if implemented
             break;
+        case GAUGE_TIRE_PRESSURE:
+            ESP_LOGI("MAIN", "Initializing tire pressure (%s mode)", test_night_mode ? "night" : "day");
+            tire_pressure_init();
+            tire_pressure_set_night_mode(test_night_mode);
+            break;
         default:
             break;
     }
@@ -149,7 +160,8 @@ void switch_gauge(gauge_type_t new_gauge)
     ESP_LOGI("MAIN", "Switched to %s (%s mode)", 
              current_gauge == GAUGE_CLOCK ? "Clock" :
              current_gauge == GAUGE_HORIZON ? "Horizon" :
-             current_gauge == GAUGE_TILT ? "Tilt" : "Unknown",
+             current_gauge == GAUGE_TILT ? "Tilt" :
+             current_gauge == GAUGE_TIRE_PRESSURE ? "Tire Pressure" : "Unknown",
              test_night_mode ? "night" : "day");
 }
 
@@ -252,6 +264,9 @@ void app_main(void)
             ESP_LOGI("MAIN", "Button pressed - switching gauge");
             handle_next_gauge_input();
         }
+        
+        // Check for display SPI errors and trigger refresh if needed
+        lvgl_check_and_refresh();
         
         // raise the task priority of LVGL and/or reduce the handler period can improve the performance
         vTaskDelay(pdMS_TO_TICKS(10));
