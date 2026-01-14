@@ -17,6 +17,8 @@ idf_component_register(
                               "./logo.c"
                               "./110Roof150w.c"
                               "./110RoofDark150w.c"
+                              "./110Rear235.c"
+                              "./110RearDark235.c"
                               "./ArtificialHorizon/artificial_horizon.c"
                               "./WarningBeep/warning_beep.c"
                               "./SD_Card/SD_MMC.c" 
@@ -28,6 +30,7 @@ idf_component_register(
                               "./Wireless/Wireless.c"
                               "./Tilt/tilt.c"
                               "./TirePressure/tire_pressure.c"
+                              "./IMU/imu_attitude.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
@@ -50,6 +53,7 @@ idf_component_register(
                               "./PCF85063"
                               "./Tilt"
                               "./TirePressure"
+                              "./IMU"
                               "./QMI8658"
                               "./BAT_Driver"
                               "./PWR_Key"

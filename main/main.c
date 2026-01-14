@@ -14,6 +14,7 @@
 #include "artificial_horizon.h"
 #include "Tilt/tilt.h"
 #include "TirePressure/tire_pressure.h"
+#include "IMU/imu_attitude.h"
 #include <math.h>
 
 
@@ -29,6 +30,19 @@ typedef enum {
 static gauge_type_t current_gauge = GAUGE_CLOCK;
 static lv_obj_t *touch_overlay = NULL;  // Global overlay reference (used only if touch available)
 static bool test_night_mode = true;     // Track day/night mode for testing
+
+// Auto-switch thresholds (use yellow warning levels)
+#define AUTO_SWITCH_ROLL_THRESHOLD  30.0f  // Switch to tilt gauge
+#define AUTO_SWITCH_PITCH_THRESHOLD 35.0f  // Switch to horizon gauge
+#define AUTO_SWITCH_LOCKOUT_MS      5000   // 5 second lockout after manual switch
+#define INACTIVITY_TIMEOUT_MS       300000 // 5 minutes = 300,000 ms
+
+static uint32_t manual_switch_time = 0;    // Timestamp of last manual switch
+static uint32_t last_activity_time = 0;    // Timestamp of last activity (for auto-return to clock)
+static bool auto_switch_enabled = true;    // Can be disabled if needed
+
+// Thread-safe pending switch request (Driver_Loop sets, main loop handles)
+static volatile gauge_type_t pending_switch = GAUGE_COUNT;  // GAUGE_COUNT = no pending switch
 
 // Forward declarations
 void switch_gauge(gauge_type_t new_gauge);
@@ -80,7 +94,13 @@ static void handle_next_gauge_input(void)
                  test_night_mode ? "NIGHT" : "DAY");
     }
     
-    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d", current_gauge, next_gauge);
+    // Record manual switch time to prevent immediate auto-switch back
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    manual_switch_time = now;
+    last_activity_time = now;  // Reset inactivity timer
+    
+    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (manual, lockout %dms)", 
+             current_gauge, next_gauge, AUTO_SWITCH_LOCKOUT_MS);
     switch_gauge(next_gauge);
 }
 
@@ -138,9 +158,9 @@ void switch_gauge(gauge_type_t new_gauge)
             artificial_horizon_set_night_mode(test_night_mode);
             break;
         case GAUGE_TILT:
-            ESP_LOGI("MAIN", "Initializing tilt");
+            ESP_LOGI("MAIN", "Initializing tilt (%s mode)", test_night_mode ? "night" : "day");
             tilt_init();
-            // TODO: Add tilt_set_night_mode if implemented
+            tilt_set_night_mode(test_night_mode);
             break;
         case GAUGE_TIRE_PRESSURE:
             ESP_LOGI("MAIN", "Initializing tire pressure (%s mode)", test_night_mode ? "night" : "day");
@@ -175,21 +195,55 @@ void Driver_Loop(void *parameter)
         BAT_Get_Volts();
         PWR_Loop();
         
+        // Update IMU attitude calculations
+        imu_update_attitude();
+        
+        float current_roll = imu_get_roll();
+        float current_pitch = imu_get_pitch();
+        
         // Update artificial horizon with IMU data when visible
         if (current_gauge == GAUGE_HORIZON) {
-            // Gauge mounted vertically in dash (normal position: X≈1.0g pointing up)
-            // X axis points up/down in the vehicle
-            // Z axis points forward/back
-            // Y axis points left/right
+            artificial_horizon_update(current_pitch, current_roll);
+        }
+        
+        // Update tilt gauge with IMU roll data when visible
+        if (current_gauge == GAUGE_TILT) {
+            tilt_set_angle(current_roll);
+        }
+        
+        // Auto-switch to warning gauges based on thresholds
+        // Priority: Roll (tilt) > Pitch (horizon) > Tire pressure (future)
+        // NOTE: We set pending_switch instead of calling switch_gauge directly
+        //       because LVGL is not thread-safe. Main loop handles the actual switch.
+        if (auto_switch_enabled) {
+            uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            bool lockout_active = (now - manual_switch_time) < AUTO_SWITCH_LOCKOUT_MS;
             
-            // Calculate pitch from vertical reference:
-            // When vertical (normal, X=1, Z=0): pitch=0
-            // Top tilts toward driver (Z negative): pitch positive (nose up)
-            // Top tilts away (Z positive): pitch negative (nose down)
-            float pitch = -atan2f(Accel.z, Accel.x) * 180.0f / M_PI;
-            float roll = atan2f(Accel.y, sqrtf(Accel.x * Accel.x + Accel.z * Accel.z)) * 180.0f / M_PI;
+            if (!lockout_active) {
+                // Highest priority: Roll exceeds threshold -> switch to tilt gauge
+                if (current_gauge != GAUGE_TILT && fabsf(current_roll) >= AUTO_SWITCH_ROLL_THRESHOLD) {
+                    ESP_LOGW("MAIN", "Auto-switch request: TILT (roll=%.1f exceeds %.1f)",
+                             current_roll, AUTO_SWITCH_ROLL_THRESHOLD);
+                    last_activity_time = now;  // Reset inactivity timer on alarm
+                    pending_switch = GAUGE_TILT;
+                }
+                // Second priority: Pitch exceeds threshold -> switch to horizon gauge
+                else if (current_gauge != GAUGE_HORIZON && fabsf(current_pitch) >= AUTO_SWITCH_PITCH_THRESHOLD) {
+                    ESP_LOGW("MAIN", "Auto-switch request: HORIZON (pitch=%.1f exceeds %.1f)",
+                             current_pitch, AUTO_SWITCH_PITCH_THRESHOLD);
+                    last_activity_time = now;  // Reset inactivity timer on alarm
+                    pending_switch = GAUGE_HORIZON;
+                }
+                // Future: Tire pressure check would go here
+            }
             
-            artificial_horizon_update(pitch, roll);
+            // Auto-return to clock after inactivity timeout
+            if (current_gauge != GAUGE_CLOCK && (now - last_activity_time) >= INACTIVITY_TIMEOUT_MS) {
+                ESP_LOGI("MAIN", "Inactivity timeout (%d min) - requesting clock",
+                         INACTIVITY_TIMEOUT_MS / 60000);
+                last_activity_time = now;  // Reset to prevent repeated switches
+                pending_switch = GAUGE_CLOCK;
+            }
         }
         
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -263,6 +317,14 @@ void app_main(void)
         if (button_input_pressed()) {
             ESP_LOGI("MAIN", "Button pressed - switching gauge");
             handle_next_gauge_input();
+        }
+        
+        // Handle pending auto-switch requests from Driver_Loop (thread-safe)
+        if (pending_switch != GAUGE_COUNT) {
+            gauge_type_t target = pending_switch;
+            pending_switch = GAUGE_COUNT;  // Clear before switching
+            ESP_LOGI("MAIN", "Processing pending auto-switch to gauge %d", target);
+            switch_gauge(target);
         }
         
         // Check for display SPI errors and trigger refresh if needed
