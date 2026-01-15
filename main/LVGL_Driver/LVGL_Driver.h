@@ -10,8 +10,9 @@
 
 #include "ST77916.h"
 
-// LVGL buffer size - 1/3 screen for smoother updates (120 lines x 360 pixels)
-#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 3))
+// LVGL buffer size - 1/10 screen to fit in internal DMA RAM (36 lines x 360 pixels)
+// Using internal RAM instead of PSRAM to avoid BLE/DMA conflicts
+#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 10))
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 
 extern lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)

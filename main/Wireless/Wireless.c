@@ -64,8 +64,10 @@ uint16_t WIFI_Scan(void)
     return ap_count;
 }
 
+// NOTE: BLE scanning is now handled by the BLE_TPMS module using NimBLE
+// The Bluedroid-based BLE scanning code below is disabled when using NimBLE
 
-#define GATTC_TAG "GATTC_TAG"
+#if CONFIG_BT_BLUEDROID_ENABLED
 #define SCAN_DURATION 5  
 #define MAX_DISCOVERED_DEVICES 100 
 
@@ -217,3 +219,4 @@ uint16_t BLE_Scan(void)
         Scan_finish = 1;
     return BLE_NUM;
 }
+#endif // CONFIG_BT_BLUEDROID_ENABLED

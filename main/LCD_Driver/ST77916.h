@@ -41,8 +41,8 @@
 
 #define ESP_PANEL_HOST_SPI_ID_DEFAULT       (SPI2_HOST)
 #define ESP_PANEL_LCD_SPI_MODE              (0)
-#define ESP_PANEL_LCD_SPI_CLK_HZ            (80 * 1000 * 1000)
-#define ESP_PANEL_LCD_SPI_TRANS_QUEUE_SZ    (50)
+#define ESP_PANEL_LCD_SPI_CLK_HZ            (80 * 1000 * 1000)  // 80MHz - full speed
+#define ESP_PANEL_LCD_SPI_TRANS_QUEUE_SZ    (10)                // Queue depth for async transfers
 #define ESP_PANEL_LCD_SPI_CMD_BITS          (32)
 #define ESP_PANEL_LCD_SPI_PARAM_BITS        (8)
 
@@ -75,6 +75,20 @@ extern uint8_t LCD_Backlight;
 
 void ST77916_Init(void);
 void LCD_Init(void);
+
+/**
+ * @brief Set the LVGL display driver for SPI completion callback
+ * MUST be called BEFORE LCD_Init() to enable proper SPI/LVGL synchronization.
+ * This prevents SPI queue overflow when BLE is active.
+ * @param drv Pointer to the LVGL display driver
+ */
+void lcd_set_lvgl_disp_drv(lv_disp_drv_t *drv);
+
+/**
+ * @brief Mark LVGL as ready to receive flush_ready callbacks
+ * MUST be called AFTER lv_disp_drv_register() completes in LVGL_Init()
+ */
+void lcd_set_lvgl_ready(void);
 
 void Backlight_Init(void);
 void Set_Backlight(uint8_t Light);

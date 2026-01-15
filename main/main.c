@@ -15,6 +15,7 @@
 #include "Tilt/tilt.h"
 #include "TirePressure/tire_pressure.h"
 #include "IMU/imu_attitude.h"
+#include "BLE_TPMS/ble_tpms.h"
 #include <math.h>
 
 
@@ -246,6 +247,9 @@ void Driver_Loop(void *parameter)
             }
         }
         
+        // Periodic BLE TPMS scan restart (every 30 sec)
+        ble_tpms_periodic_update();
+        
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     vTaskDelete(NULL);
@@ -301,6 +305,22 @@ void app_main(void)
         if (wifi_ntp_sync_time()) {
             ESP_LOGI("MAIN", "Time synchronized from NTP");
         }
+    }
+    
+    // Initialize BLE TPMS (using NimBLE - lighter weight than Bluedroid)
+    if (ble_tpms_init() == ESP_OK) {
+        ESP_LOGI("MAIN", "BLE TPMS initialized (NimBLE)");
+        // TODO: Register your sensor MAC addresses here once discovered
+        // Example:
+        // ble_tpms_register_sensor_str(TPMS_FRONT_LEFT,  "80:EA:CA:XX:XX:XX");
+        // ble_tpms_register_sensor_str(TPMS_FRONT_RIGHT, "81:EA:CA:XX:XX:XX");
+        // ble_tpms_register_sensor_str(TPMS_REAR_LEFT,   "82:EA:CA:XX:XX:XX");
+        // ble_tpms_register_sensor_str(TPMS_REAR_RIGHT,  "83:EA:CA:XX:XX:XX");
+        
+        ble_tpms_start_scan();
+        ESP_LOGI("MAIN", "BLE TPMS scanning for sensors...");
+    } else {
+        ESP_LOGE("MAIN", "Failed to initialize BLE TPMS");
     }
     ESP_LOGI("MAIN", "Gauges initialized - Clock visible, use switch_gauge() to change");
     

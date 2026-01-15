@@ -10,8 +10,9 @@
 #include <string.h>  // For memcpy
 #include "esp_system.h"
 #include "esp_bt.h"
-#include "esp_gap_ble_api.h"
-#include "esp_bt_main.h"
+// NimBLE is used instead of Bluedroid - BLE scanning handled by BLE_TPMS module
+#include "nimble/nimble_port.h"
+#include "host/ble_hs.h"
 
 
 

@@ -13,6 +13,44 @@ static const char *TAG_LCD = "ST77916";
 esp_lcd_panel_handle_t panel_handle = NULL;
 uint8_t LCD_Backlight = 70;
 
+// LVGL display driver pointer - set by LVGL_Init before LCD_Init
+static lv_disp_drv_t *s_lvgl_disp_drv = NULL;
+static bool s_lvgl_ready = false;  // Set true after LVGL is fully initialized
+
+/**
+ * @brief Set the LVGL display driver for SPI completion callback
+ * This MUST be called before LCD_Init() to enable proper SPI/LVGL sync
+ */
+void lcd_set_lvgl_disp_drv(lv_disp_drv_t *drv) {
+    s_lvgl_disp_drv = drv;
+    ESP_LOGI(TAG_LCD, "LVGL display driver registered for SPI sync");
+}
+
+/**
+ * @brief Mark LVGL as ready to receive flush_ready callbacks
+ * Call this AFTER lv_disp_drv_register() completes
+ */
+void lcd_set_lvgl_ready(void) {
+    s_lvgl_ready = true;
+    ESP_LOGI(TAG_LCD, "LVGL ready for SPI sync callbacks");
+}
+
+/**
+ * @brief SPI color transfer completion callback
+ * Called by the SPI driver when DMA transfer completes.
+ * This notifies LVGL that the flush is done and it can continue.
+ */
+static bool lcd_on_color_trans_done(esp_lcd_panel_io_handle_t panel_io, 
+                                     esp_lcd_panel_io_event_data_t *edata, 
+                                     void *user_ctx)
+{
+    // Use global disp_drv from LVGL_Driver if available
+    if (s_lvgl_ready) {
+        lv_disp_flush_ready(&disp_drv);
+    }
+    return false;  // No high priority task woken
+}
+
 static const st77916_lcd_init_cmd_t vendor_specific_init_new[] = {
   {0xF0, (uint8_t []){0x28}, 1, 0},
   {0xF2, (uint8_t []){0x28}, 1, 0},
@@ -300,13 +338,15 @@ static int QSPI_Init(void) {
     ESP_LOGW(TAG_LCD, "Failed to read register 0x04, error code: %d", ret);
   }
 
-  // Reconfigure with full speed
+  // Reconfigure with full speed and enable callback for LVGL sync
   io_config.pclk_hz = ESP_PANEL_LCD_SPI_CLK_HZ;
+  io_config.on_color_trans_done = lcd_on_color_trans_done;
+  io_config.user_ctx = NULL;  // Not used - callback uses global disp_drv
   if (esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)ESP_PANEL_HOST_SPI_ID_DEFAULT, &io_config, &io_handle) != ESP_OK) {
     ESP_LOGE(TAG_LCD, "Failed to set LCD communication parameters -- SPI");
     return 0;
   }
-  ESP_LOGI(TAG_LCD, "LCD communication parameters set successfully -- SPI (full speed)");
+  ESP_LOGI(TAG_LCD, "LCD communication parameters set successfully -- SPI (full speed, callback enabled)");;
 
   // Check register values and configure accordingly
   if (register_data[0] == 0x00 && register_data[1] == 0x7F && register_data[2] == 0x7F && register_data[3] == 0x7F) {

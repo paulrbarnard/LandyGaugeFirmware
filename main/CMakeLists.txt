@@ -31,6 +31,7 @@ idf_component_register(
                               "./Tilt/tilt.c"
                               "./TirePressure/tire_pressure.c"
                               "./IMU/imu_attitude.c"
+                              "./BLE_TPMS/ble_tpms.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
@@ -54,6 +55,7 @@ idf_component_register(
                               "./Tilt"
                               "./TirePressure"
                               "./IMU"
+                              "./BLE_TPMS"
                               "./QMI8658"
                               "./BAT_Driver"
                               "./PWR_Key"

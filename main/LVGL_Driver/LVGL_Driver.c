@@ -30,8 +30,9 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
     int offsety1 = area->y1;
     int offsety2 = area->y2;
     // copy a buffer's content to a specific area of the display
+    // SPI completion callback will call lv_disp_flush_ready() when DMA transfer completes
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
-    lv_disp_flush_ready(drv);
+    // Don't call lv_disp_flush_ready here - SPI callback handles it
 }
 
 /*Read the touchpad - only called if touch_available is true at init time */
@@ -104,14 +105,21 @@ void LVGL_Init(void)
     ESP_LOGI(TAG_LVGL, "Initialize LVGL library");
     lv_init();
     
-    lv_color_t *buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    // Use internal DMA-capable RAM to avoid PSRAM/BLE conflicts
+    // Single buffer mode - slower but more reliable with BLE active
+    lv_color_t *buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!buf1) {
+        ESP_LOGE(TAG_LVGL, "Failed to allocate internal DMA buffer, falling back to PSRAM");
+        buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    }
     assert(buf1);
-    lv_color_t *buf2 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t) , MALLOC_CAP_SPIRAM);    
-    assert(buf2);
-    lv_disp_draw_buf_init(&disp_buf, buf1, buf2, LVGL_BUF_LEN);                              // initialize LVGL draw buffers
+    ESP_LOGI(TAG_LVGL, "LVGL buffer allocated: %d bytes in %s", 
+             LVGL_BUF_LEN * sizeof(lv_color_t),
+             heap_caps_get_free_size(MALLOC_CAP_DMA) > 0 ? "internal DMA RAM" : "PSRAM");
+    lv_disp_draw_buf_init(&disp_buf, buf1, NULL, LVGL_BUF_LEN);  // Single buffer mode
 
     ESP_LOGI(TAG_LVGL, "Register display driver to LVGL");
-    lv_disp_drv_init(&disp_drv);                                                                        // Create a new screen object and initialize the associated device
+    lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = EXAMPLE_LCD_WIDTH;             
     disp_drv.ver_res = EXAMPLE_LCD_HEIGHT;                                                     // Horizontal pixel count
     // disp_drv.rotated = LV_DISP_ROT_90;                                                            // Vertical axis pixel count
@@ -121,7 +129,10 @@ void LVGL_Init(void)
     // disp_drv.full_refresh = 1;                                                                       // Disabled - use partial refresh with 1/10 screen buffers
     disp_drv.user_data = panel_handle;                
     ESP_LOGI(TAG_LVGL,"Register display indev to LVGL");                                                  // Custom display driver user data
-    disp = lv_disp_drv_register(&disp_drv);     
+    disp = lv_disp_drv_register(&disp_drv);
+    
+    // Enable SPI completion callbacks now that LVGL display driver is registered
+    lcd_set_lvgl_ready();     
     
     // Only register touch input device if touch controller was detected
     if (touch_available) {
