@@ -39,6 +39,15 @@ void tire_pressure_set_visible(bool visible);
 void tire_pressure_set_value(int wheel, float pressure_psi);
 
 /**
+ * @brief Set all sensor data for a specific wheel (pressure, temperature, battery)
+ * @param wheel 0=front-left, 1=front-right, 2=rear-left, 3=rear-right
+ * @param pressure_psi Pressure value in PSI
+ * @param temp_c Temperature value in Celsius
+ * @param battery_pct Battery percentage (0-100)
+ */
+void tire_pressure_set_sensor_data(int wheel, float pressure_psi, float temp_c, uint8_t battery_pct);
+
+/**
  * @brief Set all four tire pressure values at once
  * @param fl Front-left pressure in PSI
  * @param fr Front-right pressure in PSI

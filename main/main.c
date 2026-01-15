@@ -69,6 +69,14 @@ static void create_touch_overlay(void)
     lv_obj_add_event_cb(touch_overlay, screen_tap_event_handler, LV_EVENT_PRESSED, NULL);
 }
 
+// TPMS update callback - links BLE sensor data to tire pressure gauge
+static void tpms_update_cb(tpms_position_t position, const tpms_sensor_data_t *data)
+{
+    // Update the tire pressure gauge with pressure, temperature, and battery
+    tire_pressure_set_sensor_data((int)position, data->pressure_psi, 
+                                   data->temperature_c, data->battery_percent);
+}
+
 // Touch event handler for gauge cycling
 static void screen_tap_event_handler(lv_event_t * e)
 {
@@ -132,6 +140,7 @@ void switch_gauge(gauge_type_t new_gauge)
         case GAUGE_TIRE_PRESSURE:
             ESP_LOGI("MAIN", "Cleaning up tire pressure");
             tire_pressure_cleanup();
+            ble_tpms_set_fast_scan(false);  // Disable fast scan when leaving TPMS gauge
             break;
         default:
             break;
@@ -167,6 +176,7 @@ void switch_gauge(gauge_type_t new_gauge)
             ESP_LOGI("MAIN", "Initializing tire pressure (%s mode)", test_night_mode ? "night" : "day");
             tire_pressure_init();
             tire_pressure_set_night_mode(test_night_mode);
+            ble_tpms_set_fast_scan(true);  // Enable fast scan when viewing TPMS gauge
             break;
         default:
             break;
@@ -310,12 +320,15 @@ void app_main(void)
     // Initialize BLE TPMS (using NimBLE - lighter weight than Bluedroid)
     if (ble_tpms_init() == ESP_OK) {
         ESP_LOGI("MAIN", "BLE TPMS initialized (NimBLE)");
-        // TODO: Register your sensor MAC addresses here once discovered
-        // Example:
-        // ble_tpms_register_sensor_str(TPMS_FRONT_LEFT,  "80:EA:CA:XX:XX:XX");
-        // ble_tpms_register_sensor_str(TPMS_FRONT_RIGHT, "81:EA:CA:XX:XX:XX");
-        // ble_tpms_register_sensor_str(TPMS_REAR_LEFT,   "82:EA:CA:XX:XX:XX");
-        // ble_tpms_register_sensor_str(TPMS_REAR_RIGHT,  "83:EA:CA:XX:XX:XX");
+        
+        // Register known TPMS sensor MAC addresses (AIYATO sensors for Land Rover)
+        ble_tpms_register_sensor_str(TPMS_FRONT_LEFT,  "80:EA:CA:50:3A:51");
+        ble_tpms_register_sensor_str(TPMS_FRONT_RIGHT, "81:EA:CA:50:3B:6B");
+        ble_tpms_register_sensor_str(TPMS_REAR_LEFT,   "82:EA:CA:50:3B:13");
+        ble_tpms_register_sensor_str(TPMS_REAR_RIGHT,  "83:EA:CA:50:3B:6C");
+        
+        // Register callback to update tire pressure gauge display
+        ble_tpms_register_callback(tpms_update_cb);
         
         ble_tpms_start_scan();
         ESP_LOGI("MAIN", "BLE TPMS scanning for sensors...");

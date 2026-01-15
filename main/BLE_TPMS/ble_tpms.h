@@ -132,9 +132,23 @@ bool ble_tpms_is_scanning(void);
 
 /**
  * @brief Periodic update - call from main loop to restart scanning when needed
- * Restarts scanning after TPMS_SCAN_PERIOD_SEC has elapsed
+ * Restarts scanning after the configured scan period has elapsed
  */
 void ble_tpms_periodic_update(void);
+
+/**
+ * @brief Enable or disable fast scanning mode
+ * Fast mode scans more frequently (every ~3s vs ~30s) for real-time updates
+ * Useful when tire pressure gauge is actively displayed
+ * @param enabled true for fast mode, false for normal mode
+ */
+void ble_tpms_set_fast_scan(bool enabled);
+
+/**
+ * @brief Check if fast scanning mode is enabled
+ * @return true if fast mode active
+ */
+bool ble_tpms_is_fast_scan(void);
 
 /**
  * @brief Temporarily pause BLE scanning (for SPI display updates)

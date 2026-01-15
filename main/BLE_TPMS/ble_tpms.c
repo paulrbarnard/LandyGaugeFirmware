@@ -21,12 +21,19 @@ static const char *TAG = "BLE_TPMS";
 
 // TPMS manufacturer data characteristics
 #define TPMS_MANUF_DATA_LEN     18      // Expected manufacturer data length
-#define TPMS_MANUF_ID_TOMTOM    0x0001  // Manufacturer ID for these sensors
+#define TPMS_MANUF_ID_TOMTOM    0x0100  // Manufacturer ID for these sensors (little-endian)
 #define TPMS_SENSOR_NUM_BASE    0x80    // First sensor is 0x80
 
 // Scan duration and period
-#define TPMS_SCAN_DURATION_SEC  5   // Scan for 5 seconds
-#define TPMS_SCAN_PERIOD_SEC    30  // Then wait 30 seconds before next scan
+#define TPMS_SCAN_DURATION_SEC   5   // Scan for 5 seconds
+#define TPMS_SCAN_PERIOD_NORMAL  30  // Normal mode: wait 30 seconds between scans
+#define TPMS_SCAN_PERIOD_FAST    3   // Fast mode: wait 3 seconds between scans (nearly continuous)
+
+// Dynamic scan period (can be changed at runtime)
+static uint32_t current_scan_period_sec = TPMS_SCAN_PERIOD_NORMAL;
+
+// Per-sensor timing for transmission rate tracking
+static uint32_t last_sensor_update_ms[TPMS_POSITION_COUNT] = {0};
 
 // Registered sensor MAC addresses (configured by user)
 static uint8_t registered_sensors[TPMS_POSITION_COUNT][6] = {0};
@@ -185,11 +192,31 @@ void ble_tpms_periodic_update(void)
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         uint32_t elapsed = now - last_scan_end_ms;
         
-        if (elapsed >= (TPMS_SCAN_PERIOD_SEC * 1000)) {
-            ESP_LOGI(TAG, "Restarting periodic TPMS scan");
+        if (elapsed >= (current_scan_period_sec * 1000)) {
+            ESP_LOGD(TAG, "Restarting periodic TPMS scan (period: %lus)", current_scan_period_sec);
             ble_tpms_start_scan();
         }
     }
+}
+
+void ble_tpms_set_fast_scan(bool enabled)
+{
+    uint32_t new_period = enabled ? TPMS_SCAN_PERIOD_FAST : TPMS_SCAN_PERIOD_NORMAL;
+    if (new_period != current_scan_period_sec) {
+        current_scan_period_sec = new_period;
+        ESP_LOGI(TAG, "TPMS scan mode: %s (period: %lus)", 
+                 enabled ? "FAST" : "NORMAL", current_scan_period_sec);
+        
+        // If enabling fast mode and not currently scanning, trigger immediate scan
+        if (enabled && !scanning && ble_hs_synced()) {
+            last_scan_end_ms = 0;  // Force immediate restart on next periodic update
+        }
+    }
+}
+
+bool ble_tpms_is_fast_scan(void)
+{
+    return current_scan_period_sec == TPMS_SCAN_PERIOD_FAST;
 }
 
 // GAP event handler
@@ -215,7 +242,7 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         }
 
         case BLE_GAP_EVENT_DISC_COMPLETE:
-            ESP_LOGI(TAG, "Scan complete, next scan in %d sec", TPMS_SCAN_PERIOD_SEC);
+            ESP_LOGD(TAG, "Scan complete, next scan in %lu sec", current_scan_period_sec);
             scanning = false;
             last_scan_end_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
             return 0;
@@ -358,11 +385,12 @@ static tpms_position_t find_sensor_position(const uint8_t *mac_addr)
 static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi)
 {
     if (len < TPMS_MANUF_DATA_LEN) {
-        return; // Not TPMS data
+        return; // Not TPMS data (too short)
     }
 
-    // Check manufacturer ID (bytes 0-1, little-endian)
+    // Check manufacturer ID (bytes 0-1, little-endian per BLE spec)
     uint16_t manuf_id = manuf_data[0] | (manuf_data[1] << 8);
+    
     if (manuf_id != TPMS_MANUF_ID_TOMTOM) {
         return; // Not a TPMS sensor we recognize
     }
@@ -409,6 +437,14 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     uint8_t battery = manuf_data[16];
     uint8_t alarm = manuf_data[17];
 
+    // Track update timing to measure sensor transmission rate
+    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    uint32_t interval_ms = 0;
+    if (last_sensor_update_ms[position] > 0) {
+        interval_ms = now_ms - last_sensor_update_ms[position];
+    }
+    last_sensor_update_ms[position] = now_ms;
+
     // Update sensor data
     tpms_sensor_data_t *data = &sensor_data[position];
     memcpy(data->mac_address, sensor_mac, 6);
@@ -419,13 +455,13 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     data->battery_percent = battery;
     data->alarm = (tpms_alarm_t)alarm;
     data->rssi = rssi;
-    data->last_update_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    data->last_update_ms = now_ms;
     data->valid = true;
 
-    ESP_LOGI(TAG, "%s: %.1f PSI (%.2f bar), %.1f°C, Batt: %d%%, RSSI: %d",
+    ESP_LOGI(TAG, "%s: %.1f PSI, %.1f°C, %d%% [Δ%lums, RSSI:%d]",
              ble_tpms_position_str(position),
-             data->pressure_psi, data->pressure_bar,
-             data->temperature_c, data->battery_percent, rssi);
+             data->pressure_psi, data->temperature_c, data->battery_percent,
+             interval_ms, rssi);
 
     // Call update callback if registered
     if (update_callback != NULL) {

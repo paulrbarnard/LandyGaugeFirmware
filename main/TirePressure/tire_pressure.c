@@ -17,7 +17,13 @@ static bool night_mode = true;
 static bool use_bar_units = false;
 
 // Pressure values in PSI (stored internally in PSI, converted for display if needed)
-static float pressure_values[4] = {30.0f, 30.0f, 30.0f, 30.0f};  // FL, FR, RL, RR
+static float pressure_values[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // FL, FR, RL, RR
+
+// Temperature values in Celsius
+static float temperature_values[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // FL, FR, RL, RR
+
+// Battery percentage values
+static uint8_t battery_values[4] = {0, 0, 0, 0};  // FL, FR, RL, RR
 
 // Conversion factor: 1 PSI = 0.0689476 Bar
 #define PSI_TO_BAR 0.0689476f
@@ -29,6 +35,8 @@ static float pressure_values[4] = {30.0f, 30.0f, 30.0f, 30.0f};  // FL, FR, RL, 
 static lv_obj_t *gauge_container = NULL;
 static lv_obj_t *roof_image = NULL;
 static lv_obj_t *pressure_labels[4] = {NULL, NULL, NULL, NULL};  // FL, FR, RL, RR
+static lv_obj_t *temp_labels[4] = {NULL, NULL, NULL, NULL};      // FL, FR, RL, RR
+static lv_obj_t *battery_labels[4] = {NULL, NULL, NULL, NULL};   // FL, FR, RL, RR
 static lv_obj_t *units_label = NULL;
 
 // Declare the external images
@@ -53,12 +61,38 @@ static void update_pressure_label(int wheel)
 }
 
 /**
+ * @brief Update temperature label text
+ */
+static void update_temp_label(int wheel)
+{
+    if (wheel < 0 || wheel > 3 || !temp_labels[wheel]) return;
+    
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.0f°", temperature_values[wheel]);
+    lv_label_set_text(temp_labels[wheel], buf);
+}
+
+/**
+ * @brief Update battery label text
+ */
+static void update_battery_label(int wheel)
+{
+    if (wheel < 0 || wheel > 3 || !battery_labels[wheel]) return;
+    
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d%%", battery_values[wheel]);
+    lv_label_set_text(battery_labels[wheel], buf);
+}
+
+/**
  * @brief Update all pressure labels
  */
 static void update_all_pressure_labels(void)
 {
     for (int i = 0; i < 4; i++) {
         update_pressure_label(i);
+        update_temp_label(i);
+        update_battery_label(i);
     }
 }
 
@@ -115,45 +149,113 @@ static void draw_gauge_face(void)
     
     // Get the accent color for pressure text
     lv_color_t text_color = get_accent_color(night_mode);
+    // Secondary color for temp/battery (slightly dimmer)
+    lv_color_t secondary_color = night_mode ? lv_color_hex(0x00AA00) : lv_color_hex(0x666666);
     // Units label: black in day mode (roof is white), green in night mode
     lv_color_t units_color = night_mode ? COLOR_GREEN : lv_color_black();
     
-    // Position offsets for pressure labels relative to center
-    // Adjusted to be near each wheel position on the roof image
+    // Position offsets for labels relative to center
     // FL=front-left, FR=front-right, RL=rear-left, RR=rear-right
-    const int x_left = 80;     // Horizontal distance from center for left labels
-    const int x_right = 95;    // Horizontal distance from center for right labels (further out)
-    const int y_front = -90;   // Vertical offset for front wheels (moved up a touch)
-    const int y_rear = 100;    // Vertical offset for rear wheels (moved up a touch)
+    // Stacking: pressure (outer), temp (middle), battery (inner)
+    const int x_left = 80;      // Horizontal distance from center for left labels
+    const int x_right = 95;     // Horizontal distance from center for right labels
+    const int y_front = -105;   // Vertical offset for front wheels (top of stack)
+    const int y_rear = 85;      // Vertical offset for rear wheels (top of stack)
+    const int line_spacing = 22; // Vertical spacing between lines
     
-    // Create front-left pressure label (right-aligned so LSB is near image)
+    // ============ FRONT LEFT (wheel 0) - right-aligned, stacked vertically ============
+    // Pressure (outer/top)
     pressure_labels[0] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(pressure_labels[0], &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(pressure_labels[0], text_color, 0);
     lv_obj_set_style_text_align(pressure_labels[0], LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_width(pressure_labels[0], 80);  // Fixed width for alignment
+    lv_obj_set_width(pressure_labels[0], 80);
     lv_obj_align(pressure_labels[0], LV_ALIGN_CENTER, -x_left - 35, y_front);
     
-    // Create front-right pressure label (left-aligned so MSB is near image)
+    // Temperature (middle)
+    temp_labels[0] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(temp_labels[0], &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(temp_labels[0], secondary_color, 0);
+    lv_obj_set_style_text_align(temp_labels[0], LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_width(temp_labels[0], 80);
+    lv_obj_align(temp_labels[0], LV_ALIGN_CENTER, -x_left - 35, y_front + line_spacing + 10);
+    
+    // Battery (inner/bottom)
+    battery_labels[0] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(battery_labels[0], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(battery_labels[0], secondary_color, 0);
+    lv_obj_set_style_text_align(battery_labels[0], LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_width(battery_labels[0], 80);
+    lv_obj_align(battery_labels[0], LV_ALIGN_CENTER, -x_left - 35, y_front + line_spacing * 2 + 8);
+    
+    // ============ FRONT RIGHT (wheel 1) - left-aligned, stacked vertically ============
+    // Pressure (outer/top)
     pressure_labels[1] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(pressure_labels[1], &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(pressure_labels[1], text_color, 0);
     lv_obj_set_style_text_align(pressure_labels[1], LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_align(pressure_labels[1], LV_ALIGN_CENTER, x_right, y_front);
     
-    // Create rear-left pressure label (right-aligned so LSB is near image)
+    // Temperature (middle)
+    temp_labels[1] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(temp_labels[1], &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(temp_labels[1], secondary_color, 0);
+    lv_obj_set_style_text_align(temp_labels[1], LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(temp_labels[1], LV_ALIGN_CENTER, x_right, y_front + line_spacing + 10);
+    
+    // Battery (inner/bottom)
+    battery_labels[1] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(battery_labels[1], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(battery_labels[1], secondary_color, 0);
+    lv_obj_set_style_text_align(battery_labels[1], LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(battery_labels[1], LV_ALIGN_CENTER, x_right, y_front + line_spacing * 2 + 8);
+    
+    // ============ REAR LEFT (wheel 2) - right-aligned, stacked vertically ============
+    // Pressure (outer/top)
     pressure_labels[2] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(pressure_labels[2], &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(pressure_labels[2], text_color, 0);
     lv_obj_set_style_text_align(pressure_labels[2], LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_set_width(pressure_labels[2], 80);  // Fixed width for alignment
+    lv_obj_set_width(pressure_labels[2], 80);
     lv_obj_align(pressure_labels[2], LV_ALIGN_CENTER, -x_left - 35, y_rear);
     
-    // Create rear-right pressure label (left-aligned so MSB is near image)
+    // Temperature (middle)
+    temp_labels[2] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(temp_labels[2], &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(temp_labels[2], secondary_color, 0);
+    lv_obj_set_style_text_align(temp_labels[2], LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_width(temp_labels[2], 80);
+    lv_obj_align(temp_labels[2], LV_ALIGN_CENTER, -x_left - 35, y_rear + line_spacing + 10);
+    
+    // Battery (inner/bottom)
+    battery_labels[2] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(battery_labels[2], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(battery_labels[2], secondary_color, 0);
+    lv_obj_set_style_text_align(battery_labels[2], LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_width(battery_labels[2], 80);
+    lv_obj_align(battery_labels[2], LV_ALIGN_CENTER, -x_left - 35, y_rear + line_spacing * 2 + 8);
+    
+    // ============ REAR RIGHT (wheel 3) - left-aligned, stacked vertically ============
+    // Pressure (outer/top)
     pressure_labels[3] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(pressure_labels[3], &lv_font_montserrat_32, 0);
     lv_obj_set_style_text_color(pressure_labels[3], text_color, 0);
     lv_obj_set_style_text_align(pressure_labels[3], LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(pressure_labels[3], LV_ALIGN_CENTER, x_right, y_rear);
+    
+    // Temperature (middle)
+    temp_labels[3] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(temp_labels[3], &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(temp_labels[3], secondary_color, 0);
+    lv_obj_set_style_text_align(temp_labels[3], LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(temp_labels[3], LV_ALIGN_CENTER, x_right, y_rear + line_spacing + 10);
+    
+    // Battery (inner/bottom)
+    battery_labels[3] = lv_label_create(gauge_container);
+    lv_obj_set_style_text_font(battery_labels[3], &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(battery_labels[3], secondary_color, 0);
+    lv_obj_set_style_text_align(battery_labels[3], LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(battery_labels[3], LV_ALIGN_CENTER, x_right, y_rear + line_spacing * 2 + 8);;
     lv_obj_align(pressure_labels[3], LV_ALIGN_CENTER, x_right, y_rear);
     
     // Create units label at center (on the roof image - black for day, green for night)
@@ -217,6 +319,8 @@ void tire_pressure_cleanup(void)
         roof_image = NULL;
         for (int i = 0; i < 4; i++) {
             pressure_labels[i] = NULL;
+            temp_labels[i] = NULL;
+            battery_labels[i] = NULL;
         }
         units_label = NULL;
     }
@@ -230,6 +334,19 @@ void tire_pressure_set_value(int wheel, float pressure_psi)
     
     pressure_values[wheel] = pressure_psi;
     update_pressure_label(wheel);
+}
+
+void tire_pressure_set_sensor_data(int wheel, float pressure_psi, float temp_c, uint8_t battery_pct)
+{
+    if (wheel < 0 || wheel > 3) return;
+    
+    pressure_values[wheel] = pressure_psi;
+    temperature_values[wheel] = temp_c;
+    battery_values[wheel] = battery_pct;
+    
+    update_pressure_label(wheel);
+    update_temp_label(wheel);
+    update_battery_label(wheel);
 }
 
 void tire_pressure_set_all_values(float fl, float fr, float rl, float rr)
