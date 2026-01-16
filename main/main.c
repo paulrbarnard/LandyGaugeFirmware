@@ -245,7 +245,15 @@ void Driver_Loop(void *parameter)
                     last_activity_time = now;  // Reset inactivity timer on alarm
                     pending_switch = GAUGE_HORIZON;
                 }
-                // Future: Tire pressure check would go here
+                // Third priority: Tire pressure rapid drop -> switch to TPMS gauge
+                else if (current_gauge != GAUGE_TIRE_PRESSURE && ble_tpms_check_pressure_drop_alarm()) {
+                    tpms_position_t pos = ble_tpms_get_pressure_drop_position();
+                    ESP_LOGW("MAIN", "Auto-switch request: TIRE_PRESSURE (rapid drop on %s)",
+                             ble_tpms_position_str(pos));
+                    ble_tpms_clear_pressure_drop_alarm();  // Clear after handling
+                    last_activity_time = now;
+                    pending_switch = GAUGE_TIRE_PRESSURE;
+                }
             }
             
             // Auto-return to clock after inactivity timeout

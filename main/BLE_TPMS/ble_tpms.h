@@ -125,6 +125,24 @@ void ble_tpms_register_callback(tpms_update_callback_t callback);
 bool ble_tpms_any_low_pressure(float threshold_bar);
 
 /**
+ * @brief Check if a rapid pressure drop alarm is active
+ * Triggers when pressure drops more than 5 PSI between consecutive readings
+ * @return true if pressure drop alarm is active
+ */
+bool ble_tpms_check_pressure_drop_alarm(void);
+
+/**
+ * @brief Clear the pressure drop alarm after it has been handled
+ */
+void ble_tpms_clear_pressure_drop_alarm(void);
+
+/**
+ * @brief Get the tire position that triggered the pressure drop alarm
+ * @return Tire position, or TPMS_POSITION_COUNT if no alarm
+ */
+tpms_position_t ble_tpms_get_pressure_drop_position(void);
+
+/**
  * @brief Check if BLE TPMS is currently scanning
  * @return true if scanning active
  */

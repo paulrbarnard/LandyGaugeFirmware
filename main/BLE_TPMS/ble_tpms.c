@@ -35,6 +35,15 @@ static uint32_t current_scan_period_sec = TPMS_SCAN_PERIOD_NORMAL;
 // Per-sensor timing for transmission rate tracking
 static uint32_t last_sensor_update_ms[TPMS_POSITION_COUNT] = {0};
 
+// Previous pressure values for drop detection (in PSI)
+static float previous_pressure_psi[TPMS_POSITION_COUNT] = {0};
+static bool previous_pressure_valid[TPMS_POSITION_COUNT] = {false};
+
+// Pressure drop alarm state
+#define TPMS_PRESSURE_DROP_THRESHOLD_PSI  5.0f  // Trigger alarm if drop exceeds this
+static volatile bool pressure_drop_alarm = false;
+static tpms_position_t pressure_drop_position = TPMS_POSITION_COUNT;
+
 // Registered sensor MAC addresses (configured by user)
 static uint8_t registered_sensors[TPMS_POSITION_COUNT][6] = {0};
 static bool sensor_registered[TPMS_POSITION_COUNT] = {false};
@@ -326,6 +335,22 @@ bool ble_tpms_any_low_pressure(float threshold_bar)
     return false;
 }
 
+bool ble_tpms_check_pressure_drop_alarm(void)
+{
+    return pressure_drop_alarm;
+}
+
+void ble_tpms_clear_pressure_drop_alarm(void)
+{
+    pressure_drop_alarm = false;
+    pressure_drop_position = TPMS_POSITION_COUNT;
+}
+
+tpms_position_t ble_tpms_get_pressure_drop_position(void)
+{
+    return pressure_drop_position;
+}
+
 bool ble_tpms_is_scanning(void)
 {
     return scanning;
@@ -457,6 +482,21 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     data->rssi = rssi;
     data->last_update_ms = now_ms;
     data->valid = true;
+
+    // Check for rapid pressure drop (alarm condition)
+    if (previous_pressure_valid[position]) {
+        float drop = previous_pressure_psi[position] - data->pressure_psi;
+        if (drop >= TPMS_PRESSURE_DROP_THRESHOLD_PSI) {
+            ESP_LOGW(TAG, "PRESSURE DROP ALARM: %s dropped %.1f PSI (%.1f -> %.1f)",
+                     ble_tpms_position_str(position), drop,
+                     previous_pressure_psi[position], data->pressure_psi);
+            pressure_drop_alarm = true;
+            pressure_drop_position = position;
+        }
+    }
+    // Update previous pressure for next comparison
+    previous_pressure_psi[position] = data->pressure_psi;
+    previous_pressure_valid[position] = true;
 
     ESP_LOGI(TAG, "%s: %.1f PSI, %.1f°C, %d%% [Δ%lums, RSSI:%d]",
              ble_tpms_position_str(position),
