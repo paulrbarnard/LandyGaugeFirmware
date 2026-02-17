@@ -32,6 +32,11 @@ idf_component_register(
                               "./TirePressure/tire_pressure.c"
                               "./IMU/imu_attitude.c"
                               "./BLE_TPMS/ble_tpms.c"
+                              "./Boost/boost.c"
+                              "./ExpansionBoard/expansion_board.c"
+                              "./ExpansionBoard/mcp23017.c"
+                              "./ExpansionBoard/ads1115.c"
+                              "./ExpansionBoard/lis3mdl.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
@@ -56,6 +61,8 @@ idf_component_register(
                               "./TirePressure"
                               "./IMU"
                               "./BLE_TPMS"
+                              "./Boost"
+                              "./ExpansionBoard"
                               "./QMI8658"
                               "./BAT_Driver"
                               "./PWR_Key"

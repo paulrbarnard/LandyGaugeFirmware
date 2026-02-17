@@ -16,6 +16,9 @@
 #include "TirePressure/tire_pressure.h"
 #include "IMU/imu_attitude.h"
 #include "BLE_TPMS/ble_tpms.h"
+#include "Boost/boost.h"
+#include "expansion_board.h"
+#include "ads1115.h"
 #include <math.h>
 
 
@@ -25,12 +28,13 @@ typedef enum {
     GAUGE_HORIZON,
     GAUGE_TILT,
     GAUGE_TIRE_PRESSURE,
+    GAUGE_BOOST,
     GAUGE_COUNT
 } gauge_type_t;
 
 static gauge_type_t current_gauge = GAUGE_CLOCK;
 static lv_obj_t *touch_overlay = NULL;  // Global overlay reference (used only if touch available)
-static bool test_night_mode = true;     // Track day/night mode for testing
+static bool test_night_mode = false;    // Track day/night mode for testing
 
 // Auto-switch thresholds (use yellow warning levels)
 #define AUTO_SWITCH_ROLL_THRESHOLD  30.0f  // Switch to tilt gauge
@@ -40,10 +44,24 @@ static bool test_night_mode = true;     // Track day/night mode for testing
 
 static uint32_t manual_switch_time = 0;    // Timestamp of last manual switch
 static uint32_t last_activity_time = 0;    // Timestamp of last activity (for auto-return to clock)
-static bool auto_switch_enabled = true;    // Can be disabled if needed
+static bool auto_switch_enabled = false;   // Disabled for now - manual switching only (set true to re-enable)
 
 // Thread-safe pending switch request (Driver_Loop sets, main loop handles)
 static volatile gauge_type_t pending_switch = GAUGE_COUNT;  // GAUGE_COUNT = no pending switch
+
+// MAP sensor configuration (2-bar boost Renault sensor on ADS1115 AIN0)
+// "2 bar" = 2 bar gauge boost = 3 bar absolute (0-300 kPa)
+// Sensor outputs 0-5V, resistor divider R26=47K / R28=33K scales to 0-2.0625V at ADC
+// Divider ratio = 33/(47+33) = 0.4125
+#define MAP_ADC_CHANNEL         0       // AIN0
+#define MAP_DIVIDER_RATIO       0.4125f // R28/(R26+R28) = 33K/80K
+#define MAP_VOLTAGE_MIN         (0.0f * MAP_DIVIDER_RATIO)   // 0V sensor = 0 kPa
+#define MAP_VOLTAGE_MAX         (5.0f * MAP_DIVIDER_RATIO)   // 5V sensor = 300 kPa (2.0625V at ADC)
+#define MAP_KPA_MIN             0.0f    // 0 kPa absolute
+#define MAP_KPA_MAX             300.0f  // 300 kPa absolute (3 bar abs = 2 bar boost)
+#define MAP_ATMOSPHERIC_KPA     101.325f // Standard atmosphere
+#define KPA_TO_PSI              0.145038f
+static bool map_adc_configured = false;  // Track if PGA/DR set for MAP reading
 
 // Forward declarations
 void switch_gauge(gauge_type_t new_gauge);
@@ -52,6 +70,7 @@ static void screen_tap_event_handler(lv_event_t * e);  // Forward declare
 
 // Forward declaration for input handling
 static void handle_next_gauge_input(void);
+static void handle_prev_gauge_input(void);
 
 // Helper function to create the touch overlay (only called if touch_available)
 static void create_touch_overlay(void)
@@ -113,6 +132,21 @@ static void handle_next_gauge_input(void)
     switch_gauge(next_gauge);
 }
 
+// Common input handler for previous gauge (backward cycling)
+static void handle_prev_gauge_input(void)
+{
+    gauge_type_t prev_gauge = (current_gauge == 0) ? (GAUGE_COUNT - 1) : (current_gauge - 1);
+
+    // Record manual switch time to prevent immediate auto-switch back
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    manual_switch_time = now;
+    last_activity_time = now;
+
+    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (prev, lockout %dms)",
+             current_gauge, prev_gauge, AUTO_SWITCH_LOCKOUT_MS);
+    switch_gauge(prev_gauge);
+}
+
 void switch_gauge(gauge_type_t new_gauge)
 {
     ESP_LOGI("MAIN", "switch_gauge called: current=%d, new=%d, night_mode=%d", 
@@ -141,6 +175,10 @@ void switch_gauge(gauge_type_t new_gauge)
             ESP_LOGI("MAIN", "Cleaning up tire pressure");
             tire_pressure_cleanup();
             ble_tpms_set_fast_scan(false);  // Disable fast scan when leaving TPMS gauge
+            break;
+        case GAUGE_BOOST:
+            ESP_LOGI("MAIN", "Cleaning up boost gauge");
+            boost_cleanup();
             break;
         default:
             break;
@@ -178,6 +216,11 @@ void switch_gauge(gauge_type_t new_gauge)
             tire_pressure_set_night_mode(test_night_mode);
             ble_tpms_set_fast_scan(true);  // Enable fast scan when viewing TPMS gauge
             break;
+        case GAUGE_BOOST:
+            ESP_LOGI("MAIN", "Initializing boost gauge (%s mode)", test_night_mode ? "night" : "day");
+            boost_init();
+            boost_set_night_mode(test_night_mode);
+            break;
         default:
             break;
     }
@@ -192,7 +235,8 @@ void switch_gauge(gauge_type_t new_gauge)
              current_gauge == GAUGE_CLOCK ? "Clock" :
              current_gauge == GAUGE_HORIZON ? "Horizon" :
              current_gauge == GAUGE_TILT ? "Tilt" :
-             current_gauge == GAUGE_TIRE_PRESSURE ? "Tire Pressure" : "Unknown",
+             current_gauge == GAUGE_TIRE_PRESSURE ? "Tire Pressure" :
+             current_gauge == GAUGE_BOOST ? "Boost" : "Unknown",
              test_night_mode ? "night" : "day");
 }
 
@@ -280,6 +324,7 @@ void Driver_Init(void)
     BAT_Init();
     I2C_Init();
     EXIO_Init();                    // Example Initialize EXIO
+    expansion_board_init();          // Initialize expansion board (MCP23017, ADS1115, QMC5883L)
     Flash_Searching();
     PCF85063_Init();
     QMI8658_Init();
@@ -313,6 +358,7 @@ void app_main(void)
     // ********************* Gauge Displays *********************
     // Initialize clock and display with current RTC time (before WiFi/NTP sync)
     clock_init();
+    clock_set_night_mode(test_night_mode);  // Apply initial day/night mode
     clock_set_visible(true);  // Clock visible by default
     
     // Other gauges will be initialized on-demand when switching
@@ -354,12 +400,79 @@ void app_main(void)
     ESP_LOGI("MAIN", "Button input active on GPIO%d", CONFIG_BUTTON_NEXT_GPIO);
 
     while (1) {
-        // Check for button press
+        // Check for button press (GPIO0 boot button or GPIO43 next)
         if (button_input_pressed()) {
-            ESP_LOGI("MAIN", "Button pressed - switching gauge");
+            ESP_LOGI("MAIN", "Next button pressed - switching gauge");
             handle_next_gauge_input();
         }
         
+        // Check for previous button press (GPIO44)
+        if (button_input_prev_pressed()) {
+            ESP_LOGI("MAIN", "Prev button pressed - switching gauge");
+            handle_prev_gauge_input();
+        }
+        
+        // Check expansion board select button (if present)
+        if (expansion_board_detected() && exbd_select_pressed()) {
+            ESP_LOGI("MAIN", "Expansion select button - switching gauge");
+            handle_next_gauge_input();
+        }
+        
+        // Auto night mode from expansion board lights input
+        if (expansion_board_detected()) {
+            bool lights_on = exbd_get_input(EXBD_INPUT_LIGHTS);
+            if (lights_on != test_night_mode) {
+                test_night_mode = lights_on;
+                ESP_LOGI("MAIN", "Lights input → %s mode", lights_on ? "NIGHT" : "DAY");
+                // Apply night mode to the currently active gauge
+                switch (current_gauge) {
+                    case GAUGE_CLOCK:         clock_set_night_mode(test_night_mode); break;
+                    case GAUGE_HORIZON:       artificial_horizon_set_night_mode(test_night_mode); break;
+                    case GAUGE_TILT:          tilt_set_night_mode(test_night_mode); break;
+                    case GAUGE_TIRE_PRESSURE: tire_pressure_set_night_mode(test_night_mode); break;
+                    case GAUGE_BOOST:         boost_set_night_mode(test_night_mode); break;
+                    default: break;
+                }
+            }
+        }
+        
+        // Read MAP sensor and update boost gauge (only when boost gauge is active)
+        if (current_gauge == GAUGE_BOOST && expansion_board_detected()) {
+            // Configure ADC for fast MAP reads on first use
+            if (!map_adc_configured) {
+                ads1115_set_gain(ADS1115_PGA_2048);    // ±2.048V for 0-2V divider output
+                ads1115_set_data_rate(ADS1115_DR_860SPS); // Fast conversion (~2ms)
+                map_adc_configured = true;
+                ESP_LOGI("MAIN", "MAP ADC configured: ±2.048V, 860 SPS");
+            }
+
+            float voltage = 0.0f;
+            esp_err_t adc_ret = ads1115_read_single(MAP_ADC_CHANNEL, &voltage);
+            if (adc_ret == ESP_OK) {
+                // Convert voltage to kPa absolute
+                float kpa_abs = MAP_KPA_MIN + 
+                    (voltage - MAP_VOLTAGE_MIN) / (MAP_VOLTAGE_MAX - MAP_VOLTAGE_MIN) 
+                    * (MAP_KPA_MAX - MAP_KPA_MIN);
+                // Clamp to valid range
+                if (kpa_abs < MAP_KPA_MIN) kpa_abs = MAP_KPA_MIN;
+                if (kpa_abs > MAP_KPA_MAX) kpa_abs = MAP_KPA_MAX;
+                // Convert to gauge pressure (boost bar)
+                float boost_bar = (kpa_abs - MAP_ATMOSPHERIC_KPA) / 100.0f;
+                if (boost_bar < 0.0f) boost_bar = 0.0f;  // No vacuum on diesel gauge
+
+                static int map_log_counter = 0;
+                if ((map_log_counter++ % 50) == 0) {  // Log every ~0.5s
+                    ESP_LOGI("MAP", "V=%.3f kPa=%.1f BAR=%.2f", voltage, kpa_abs, boost_bar);
+                }
+                boost_set_value(boost_bar);
+            } else {
+                static int err_counter = 0;
+                if ((err_counter++ % 100) == 0) {
+                    ESP_LOGE("MAP", "ADC read failed: %s", esp_err_to_name(adc_ret));
+                }
+            }
+        }
+
         // Handle pending auto-switch requests from Driver_Loop (thread-safe)
         if (pending_switch != GAUGE_COUNT) {
             gauge_type_t target = pending_switch;
