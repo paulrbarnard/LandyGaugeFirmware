@@ -253,6 +253,7 @@ static void create_touch_overlay(void)
     lv_obj_set_style_pad_all(touch_overlay, 0, 0);
     lv_obj_clear_flag(touch_overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(touch_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(touch_overlay, touch_event_handler, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(touch_overlay, touch_event_handler, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(touch_overlay, touch_event_handler, LV_EVENT_LONG_PRESSED, NULL);
 }
@@ -295,6 +296,7 @@ static void handle_select_action(void)
 // The center zone (100px radius) is excluded from left/right taps to prevent overlap.
 #define TOUCH_CENTER_RADIUS  100
 #define TOUCH_CENTER_R2      (TOUCH_CENTER_RADIUS * TOUCH_CENTER_RADIUS)
+#define TOUCH_DEBOUNCE_MS    300   // Minimum ms between gauge switches (prevents double-fire)
 
 static inline bool touch_in_center(const lv_point_t *p)
 {
@@ -303,21 +305,47 @@ static inline bool touch_in_center(const lv_point_t *p)
     return (dx * dx + dy * dy) <= TOUCH_CENTER_R2;
 }
 
+/* Capture the initial press position so left/right is determined by where
+   the finger first lands, not where it drifts to before release. */
+static lv_point_t touch_press_point = {0, 0};
+static bool       touch_press_valid = false;
+static uint32_t   last_touch_switch_ms = 0;
+
 // Touch event handler: tap left/right edges = prev/next, long press center = select
 static void touch_event_handler(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
 
-    if (code == LV_EVENT_SHORT_CLICKED) {
+    if (code == LV_EVENT_PRESSED) {
+        /* Record where the finger first touched down */
         lv_indev_t *indev = lv_indev_get_act();
-        lv_point_t point;
-        lv_indev_get_point(indev, &point);
+        lv_indev_get_point(indev, &touch_press_point);
+        touch_press_valid = true;
+        return;
+    }
+
+    if (code == LV_EVENT_SHORT_CLICKED) {
+        /* Use the PRESS position for direction, not the release position */
+        if (!touch_press_valid) return;
+        touch_press_valid = false;
+
+        lv_point_t point = touch_press_point;
+
+        /* Debounce: ignore rapid taps (overlay recreation can re-fire events) */
+        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        if ((now - last_touch_switch_ms) < TOUCH_DEBOUNCE_MS) {
+            ESP_LOGI("MAIN", "Touch debounced (%d,%d) — %lums since last switch",
+                     point.x, point.y, now - last_touch_switch_ms);
+            return;
+        }
 
         /* Ignore taps in the center zone — reserved for long press */
         if (touch_in_center(&point)) {
             ESP_LOGI("MAIN", "Tap ignored (%d,%d) — center zone", point.x, point.y);
             return;
         }
+
+        last_touch_switch_ms = now;
 
         if (point.x < 180) {
             ESP_LOGI("MAIN", "Touch left (%d,%d) — prev gauge", point.x, point.y);
@@ -327,9 +355,12 @@ static void touch_event_handler(lv_event_t * e)
             handle_next_gauge_input();
         }
     } else if (code == LV_EVENT_LONG_PRESSED) {
-        lv_indev_t *indev = lv_indev_get_act();
-        lv_point_t point;
-        lv_indev_get_point(indev, &point);
+        /* Use the press position for center detection */
+        lv_point_t point = touch_press_valid ? touch_press_point : (lv_point_t){0, 0};
+        if (!touch_press_valid) {
+            lv_indev_t *indev = lv_indev_get_act();
+            lv_indev_get_point(indev, &point);
+        }
 
         if (touch_in_center(&point)) {
             ESP_LOGI("MAIN", "Long press center (%d,%d) — select action", point.x, point.y);

@@ -491,14 +491,13 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     data->last_update_ms = now_ms;
     data->valid = true;
 
-    // Check for rapid pressure drop (alarm condition)
-    // Only trigger if the drop happened within 60 seconds (not a stale comparison)
-    if (previous_pressure_valid[position] && interval_ms > 0 && interval_ms <= 60000) {
+    // Check for rapid pressure drop between consecutive readings (~5s apart)
+    if (previous_pressure_valid[position]) {
         float drop = previous_pressure_psi[position] - data->pressure_psi;
         if (drop >= TPMS_PRESSURE_DROP_THRESHOLD_PSI) {
-            ESP_LOGW(TAG, "PRESSURE DROP ALARM: %s dropped %.1f PSI in %lums (%.1f -> %.1f)",
-                     ble_tpms_position_str(position), drop, interval_ms,
-                     previous_pressure_psi[position], data->pressure_psi);
+            ESP_LOGW(TAG, "PRESSURE DROP ALARM: %s dropped %.1f PSI between readings (%.1f -> %.1f, Δ%lums)",
+                     ble_tpms_position_str(position), drop,
+                     previous_pressure_psi[position], data->pressure_psi, interval_ms);
             pressure_drop_alarm = true;
             pressure_drop_position = position;
         }
