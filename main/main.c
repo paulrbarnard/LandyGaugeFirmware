@@ -165,11 +165,21 @@ static bool alarm_check_tpms_drop(void)
     return ble_tpms_check_pressure_drop_alarm();
 }
 
+/** TPMS alarm: any connected sensor below 15 PSI */
+#define TPMS_LOW_PRESSURE_PSI  15.0f
+#define TPMS_LOW_PRESSURE_BAR  (TPMS_LOW_PRESSURE_PSI / 14.5038f)
+static bool alarm_check_tpms_low(void)
+{
+    if (!ble_tpms_any_sensor_present()) return false;
+    return ble_tpms_any_low_pressure(TPMS_LOW_PRESSURE_BAR);
+}
+
 /* ── Alarm table — evaluated in priority order (highest first) ─────── */
 static const alarm_entry_t alarm_table[] = {
     { alarm_check_tilt,      GAUGE_TILT,          "Tilt warning"       },
     { alarm_check_egt,       GAUGE_EGT,           "EGT over-temp"      },
     { alarm_check_tpms_drop, GAUGE_TIRE_PRESSURE, "TPMS pressure drop" },
+    { alarm_check_tpms_low,  GAUGE_TIRE_PRESSURE, "TPMS low pressure"  },
 };
 #define ALARM_TABLE_COUNT  (sizeof(alarm_table) / sizeof(alarm_table[0]))
 
