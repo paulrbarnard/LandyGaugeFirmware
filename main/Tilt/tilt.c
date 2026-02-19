@@ -344,7 +344,8 @@ void tilt_init(void) {
     lv_obj_set_style_radius(tilt_gauge, 0, 0);
     lv_obj_clear_flag(tilt_gauge, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Initialize scale line color\n    scale_line_color = get_accent_color(night_mode);
+    // Initialize scale line color
+    scale_line_color = get_accent_color(night_mode);
 
     // Create static horizontal reference line (behind the image)
     horizon_line_obj = lv_obj_create(tilt_gauge);
@@ -405,7 +406,17 @@ void tilt_set_visible(bool visible) {
     }
 }
 
+/* Minimum angle change (degrees) before triggering a redraw.
+   Prevents constant invalidation from starving LVGL input processing. */
+#define TILT_REDRAW_THRESHOLD  1.0f
+
 void tilt_set_angle(float angle_degrees) {
+    // Skip redraw if the angle hasn't changed enough
+    float delta = fabsf(angle_degrees - current_tilt_angle);
+    if (delta < TILT_REDRAW_THRESHOLD) {
+        return;  // No meaningful change — don't invalidate
+    }
+
     // Update the stored tilt angle
     current_tilt_angle = angle_degrees;
     
@@ -516,4 +527,27 @@ void tilt_set_night_mode(bool night) {
         
         ESP_LOGI(TAG, "Tilt gauge switched to %s mode", night_mode ? "night" : "day");
     }
+}
+
+void tilt_cleanup(void)
+{
+    ESP_LOGI(TAG, "Cleaning up tilt gauge");
+
+    /* Stop any active warning audio */
+    if (current_tilt_audio_level != WARNING_NONE) {
+        warning_beep_start(WARNING_LEVEL_NONE);
+        current_tilt_audio_level = WARNING_NONE;
+    }
+    tilt_warning_level = WARNING_NONE;
+
+    if (tilt_gauge) {
+        lv_obj_del(tilt_gauge);
+        tilt_gauge = NULL;
+        tilt_img = NULL;
+        horizon_line_obj = NULL;
+        left_scale_obj = NULL;
+        right_scale_obj = NULL;
+    }
+
+    ESP_LOGI(TAG, "Tilt gauge cleanup complete");
 }

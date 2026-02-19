@@ -11,6 +11,8 @@
 #include "mcp23017.h"
 #include "ads1115.h"
 #include "lis3mdl.h"
+#include "mcp9600.h"
+#include "I2C_Driver.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -36,6 +38,7 @@ static bool board_detected = false;
 static bool mcp23017_ok = false;
 static bool ads1115_ok = false;
 static bool qmc5883l_ok = false;  // renamed internally but actually LIS3MDL
+static bool mcp9600_ok = false;   // MCP9600 thermocouple converter
 
 // Digital input state
 static exbd_inputs_snapshot_t input_snapshot;
@@ -77,6 +80,21 @@ const char *exbd_input_name(exbd_input_t input)
 {
     if (input >= EXBD_INPUT_COUNT) return "Unknown";
     return input_names[input];
+}
+
+/*******************************************************************************
+ * Fast I2C probe (50ms timeout instead of 1000ms)
+ ******************************************************************************/
+static bool i2c_probe(uint8_t addr)
+{
+    // Just send START + addr + STOP with a short timeout
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(50));
+    i2c_cmd_link_delete(cmd);
+    return (ret == ESP_OK);
 }
 
 /*******************************************************************************
@@ -191,8 +209,8 @@ esp_err_t expansion_board_init(void)
     memset(&input_snapshot, 0, sizeof(input_snapshot));
     memset(&debounce, 0, sizeof(debounce));
 
-    // Initialize MCP23017 (I/O expander)
-    if (mcp23017_init() == ESP_OK) {
+    // Initialize MCP23017 (I/O expander) — fast probe first to avoid 1s timeout
+    if (i2c_probe(MCP23017_I2C_ADDR) && mcp23017_init() == ESP_OK) {
         mcp23017_ok = true;
         board_detected = true;
         ESP_LOGI(TAG, "MCP23017 I/O expander: OK");
@@ -200,20 +218,31 @@ esp_err_t expansion_board_init(void)
         ESP_LOGW(TAG, "MCP23017 I/O expander: NOT FOUND");
     }
 
-    // Initialize ADS1115 (ADC)
-    if (ads1115_init() == ESP_OK) {
+    // Initialize ADS1115 (ADC) — fast probe first
+    if (i2c_probe(ADS1115_I2C_ADDR) && ads1115_init() == ESP_OK) {
         ads1115_ok = true;
+        board_detected = true;
         ESP_LOGI(TAG, "ADS1115 ADC: OK");
     } else {
         ESP_LOGW(TAG, "ADS1115 ADC: NOT FOUND");
     }
 
-    // Initialize LIS3MDL (magnetometer)
-    if (lis3mdl_init() == ESP_OK) {
+    // Initialize LIS3MDL (magnetometer) — fast probe first
+    if (i2c_probe(LIS3MDL_I2C_ADDR) && lis3mdl_init() == ESP_OK) {
         qmc5883l_ok = true;
+        board_detected = true;
         ESP_LOGI(TAG, "LIS3MDL magnetometer: OK");
     } else {
         ESP_LOGW(TAG, "LIS3MDL magnetometer: NOT FOUND");
+    }
+
+    // Initialize MCP9600 (thermocouple converter) — fast probe first
+    if (i2c_probe(MCP9600_I2C_ADDR) && mcp9600_init() == ESP_OK) {
+        mcp9600_ok = true;
+        board_detected = true;
+        ESP_LOGI(TAG, "MCP9600 thermocouple: OK");
+    } else {
+        ESP_LOGW(TAG, "MCP9600 thermocouple: NOT FOUND");
     }
 
     if (!board_detected) {
@@ -263,10 +292,11 @@ esp_err_t expansion_board_init(void)
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "Expansion board initialized (MCP23017=%s, ADS1115=%s, LIS3MDL=%s)",
+    ESP_LOGI(TAG, "Expansion board initialized (MCP23017=%s, ADS1115=%s, LIS3MDL=%s, MCP9600=%s)",
              mcp23017_ok ? "YES" : "NO",
              ads1115_ok ? "YES" : "NO",
-             qmc5883l_ok ? "YES" : "NO");
+             qmc5883l_ok ? "YES" : "NO",
+             mcp9600_ok ? "YES" : "NO");
 
     return ESP_OK;
 }
@@ -274,6 +304,11 @@ esp_err_t expansion_board_init(void)
 bool expansion_board_detected(void)
 {
     return board_detected;
+}
+
+bool exbd_has_io(void)
+{
+    return mcp23017_ok;
 }
 
 /*******************************************************************************

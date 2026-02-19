@@ -26,4 +26,9 @@ void tilt_set_angle(float angle_degrees);
  */
 void tilt_set_night_mode(bool night);
 
+/**
+ * @brief Clean up tilt gauge resources
+ */
+void tilt_cleanup(void);
+
 #endif // TILT_H

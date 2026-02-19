@@ -17,24 +17,68 @@
 #include "IMU/imu_attitude.h"
 #include "BLE_TPMS/ble_tpms.h"
 #include "Boost/boost.h"
+#include "Compass/compass.h"
+#include "EGT/egt.h"
 #include "expansion_board.h"
 #include "ads1115.h"
+#include "lis3mdl.h"
+#include "mcp9600.h"
+#include "settings.h"
+#include "nvs_flash.h"
+#include "esp_wifi.h"
+#include "soc/rtc.h"
 #include <math.h>
 
 
 // Gauge selection
 typedef enum {
     GAUGE_CLOCK = 0,
-    GAUGE_HORIZON,
+    GAUGE_HORIZON,       // Temporarily skipped in cycling
     GAUGE_TILT,
     GAUGE_TIRE_PRESSURE,
     GAUGE_BOOST,
+    GAUGE_COMPASS,
+    GAUGE_EGT,
     GAUGE_COUNT
 } gauge_type_t;
 
 static gauge_type_t current_gauge = GAUGE_CLOCK;
 static lv_obj_t *touch_overlay = NULL;  // Global overlay reference (used only if touch available)
 static bool test_night_mode = false;    // Track day/night mode for testing
+
+/* ── Gauge cycling order ─────────────────────────────────────────────── */
+static const gauge_type_t gauge_order[] = {
+    GAUGE_CLOCK,
+    GAUGE_BOOST,
+    GAUGE_EGT,
+    GAUGE_TIRE_PRESSURE,
+    GAUGE_TILT,
+    GAUGE_COMPASS,
+};
+#define GAUGE_ORDER_COUNT  (sizeof(gauge_order) / sizeof(gauge_order[0]))
+
+/* Returns true if the gauge needs the expansion board to be connected */
+static bool gauge_needs_expansion(gauge_type_t g)
+{
+    return (g == GAUGE_BOOST || g == GAUGE_EGT || g == GAUGE_COMPASS);
+}
+
+/* Find the index of a gauge in gauge_order[], or 0 if not found */
+static int gauge_order_index(gauge_type_t g)
+{
+    for (int i = 0; i < (int)GAUGE_ORDER_COUNT; i++) {
+        if (gauge_order[i] == g) return i;
+    }
+    return 0;
+}
+
+/* Determine whether a gauge should be skipped in cycling */
+static bool should_skip_gauge(gauge_type_t g)
+{
+    if (g == GAUGE_HORIZON) return true;  /* always skip */
+    if (!expansion_board_detected() && gauge_needs_expansion(g)) return true;
+    return false;
+}
 
 // Auto-switch thresholds (use yellow warning levels)
 #define AUTO_SWITCH_ROLL_THRESHOLD  30.0f  // Switch to tilt gauge
@@ -63,29 +107,59 @@ static volatile gauge_type_t pending_switch = GAUGE_COUNT;  // GAUGE_COUNT = no 
 #define KPA_TO_PSI              0.145038f
 static bool map_adc_configured = false;  // Track if PGA/DR set for MAP reading
 
+// Ignition state tracking
+static bool ignition_on = true;        // Assume ON at boot (display starts active)
+static bool system_sleeping = false;   // True when in low-power standby mode
+
 // Forward declarations
 void switch_gauge(gauge_type_t new_gauge);
 void set_all_gauges_night_mode(bool night_mode);
-static void screen_tap_event_handler(lv_event_t * e);  // Forward declare
+static void touch_event_handler(lv_event_t * e);
+static void handle_select_action(void);
 
 // Forward declaration for input handling
 static void handle_next_gauge_input(void);
 static void handle_prev_gauge_input(void);
+static void enter_standby_mode(void);
+static void exit_standby_mode(void);
+
+// Recursively strip CLICKABLE from an object and all its descendants
+static void strip_clickable_recursive(lv_obj_t *obj)
+{
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+    uint32_t cnt = lv_obj_get_child_cnt(obj);
+    for (uint32_t i = 0; i < cnt; i++) {
+        strip_clickable_recursive(lv_obj_get_child(obj, i));
+    }
+}
 
 // Helper function to create the touch overlay (only called if touch_available)
+// Uses a transparent full-screen object as the LAST child of the screen,
+// ensuring it sits above all gauge content and captures all touch events.
 static void create_touch_overlay(void)
 {
     if (!touch_available) return;  // Runtime check
     
     lv_obj_t *screen = lv_scr_act();
+
+    /* Recursively strip CLICKABLE from every existing child tree so
+       nothing can steal touch events from our overlay. */
+    uint32_t cnt = lv_obj_get_child_cnt(screen);
+    for (uint32_t i = 0; i < cnt; i++) {
+        strip_clickable_recursive(lv_obj_get_child(screen, i));
+    }
+
     touch_overlay = lv_obj_create(screen);
     lv_obj_set_size(touch_overlay, 360, 360);
     lv_obj_set_pos(touch_overlay, 0, 0);
-    lv_obj_set_style_bg_opa(touch_overlay, LV_OPA_TRANSP, 0);  // Transparent
-    lv_obj_set_style_border_width(touch_overlay, 0, 0);  // No border
+    lv_obj_set_style_bg_opa(touch_overlay, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(touch_overlay, 0, 0);
+    lv_obj_set_style_pad_all(touch_overlay, 0, 0);
     lv_obj_clear_flag(touch_overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(touch_overlay, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(touch_overlay, screen_tap_event_handler, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(touch_overlay, touch_event_handler, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(touch_overlay, touch_event_handler, LV_EVENT_LONG_PRESSED, NULL);
 }
 
 // TPMS update callback - links BLE sensor data to tire pressure gauge
@@ -96,38 +170,101 @@ static void tpms_update_cb(tpms_position_t position, const tpms_sensor_data_t *d
                                    data->temperature_c, data->battery_percent);
 }
 
-// Touch event handler for gauge cycling
-static void screen_tap_event_handler(lv_event_t * e)
+// Select action handler — dispatches gauge-specific action (same as hardware select button)
+static void handle_select_action(void)
+{
+    switch (current_gauge) {
+        case GAUGE_COMPASS:
+            ESP_LOGI("MAIN", "Select: toggle compass calibration");
+            compass_toggle_calibration();
+            break;
+        case GAUGE_BOOST:
+            ESP_LOGI("MAIN", "Select: toggle boost units");
+            boost_toggle_units();
+            break;
+        case GAUGE_TIRE_PRESSURE:
+            ESP_LOGI("MAIN", "Select: toggle tire pressure units");
+            tire_pressure_toggle_units();
+            break;
+        case GAUGE_EGT:
+            ESP_LOGI("MAIN", "Select: toggle EGT units");
+            egt_toggle_units();
+            break;
+        default:
+            ESP_LOGI("MAIN", "Select action (no action on this gauge)");
+            break;
+    }
+}
+
+// Touch zones: left/right edges for navigation, center circle for long-press select.
+// The center zone (100px radius) is excluded from left/right taps to prevent overlap.
+#define TOUCH_CENTER_RADIUS  100
+#define TOUCH_CENTER_R2      (TOUCH_CENTER_RADIUS * TOUCH_CENTER_RADIUS)
+
+static inline bool touch_in_center(const lv_point_t *p)
+{
+    int dx = p->x - 180;
+    int dy = p->y - 180;
+    return (dx * dx + dy * dy) <= TOUCH_CENTER_R2;
+}
+
+// Touch event handler: tap left/right edges = prev/next, long press center = select
+static void touch_event_handler(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
-    
-    ESP_LOGI("MAIN", "Touch event code: %d", code);
-    
-    // Only respond to PRESSED event (finger down) to avoid spam
-    if (code == LV_EVENT_PRESSED) {
-        handle_next_gauge_input();
+
+    if (code == LV_EVENT_SHORT_CLICKED) {
+        lv_indev_t *indev = lv_indev_get_act();
+        lv_point_t point;
+        lv_indev_get_point(indev, &point);
+
+        /* Ignore taps in the center zone — reserved for long press */
+        if (touch_in_center(&point)) {
+            ESP_LOGI("MAIN", "Tap ignored (%d,%d) — center zone", point.x, point.y);
+            return;
+        }
+
+        if (point.x < 180) {
+            ESP_LOGI("MAIN", "Touch left (%d,%d) — prev gauge", point.x, point.y);
+            handle_prev_gauge_input();
+        } else {
+            ESP_LOGI("MAIN", "Touch right (%d,%d) — next gauge", point.x, point.y);
+            handle_next_gauge_input();
+        }
+    } else if (code == LV_EVENT_LONG_PRESSED) {
+        lv_indev_t *indev = lv_indev_get_act();
+        lv_point_t point;
+        lv_indev_get_point(indev, &point);
+
+        if (touch_in_center(&point)) {
+            ESP_LOGI("MAIN", "Long press center (%d,%d) — select action", point.x, point.y);
+            handle_select_action();
+        } else {
+            ESP_LOGI("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
+        }
     }
 }
 
 // Common input handler for both touch and button
 static void handle_next_gauge_input(void)
 {
-    // Check if we're about to complete a cycle (going back to first gauge)
-    gauge_type_t next_gauge = (current_gauge + 1) % GAUGE_COUNT;
-    
-    // If cycling back to first gauge, toggle day/night mode
-    if (next_gauge == GAUGE_CLOCK && current_gauge != GAUGE_CLOCK) {
-        test_night_mode = !test_night_mode;
-        ESP_LOGI("MAIN", "Completed gauge cycle - switching to %s mode", 
-                 test_night_mode ? "NIGHT" : "DAY");
+    int idx = gauge_order_index(current_gauge);
+    gauge_type_t next_gauge = current_gauge;
+
+    for (int step = 0; step < (int)GAUGE_ORDER_COUNT; step++) {
+        idx = (idx + 1) % (int)GAUGE_ORDER_COUNT;
+        if (!should_skip_gauge(gauge_order[idx])) {
+            next_gauge = gauge_order[idx];
+            break;
+        }
     }
-    
+
     // Record manual switch time to prevent immediate auto-switch back
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     manual_switch_time = now;
     last_activity_time = now;  // Reset inactivity timer
     
-    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (manual, lockout %dms)", 
+    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (next, lockout %dms)", 
              current_gauge, next_gauge, AUTO_SWITCH_LOCKOUT_MS);
     switch_gauge(next_gauge);
 }
@@ -135,7 +272,16 @@ static void handle_next_gauge_input(void)
 // Common input handler for previous gauge (backward cycling)
 static void handle_prev_gauge_input(void)
 {
-    gauge_type_t prev_gauge = (current_gauge == 0) ? (GAUGE_COUNT - 1) : (current_gauge - 1);
+    int idx = gauge_order_index(current_gauge);
+    gauge_type_t prev_gauge = current_gauge;
+
+    for (int step = 0; step < (int)GAUGE_ORDER_COUNT; step++) {
+        idx = (idx == 0) ? (int)(GAUGE_ORDER_COUNT - 1) : (idx - 1);
+        if (!should_skip_gauge(gauge_order[idx])) {
+            prev_gauge = gauge_order[idx];
+            break;
+        }
+    }
 
     // Record manual switch time to prevent immediate auto-switch back
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -145,6 +291,114 @@ static void handle_prev_gauge_input(void)
     ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (prev, lockout %dms)",
              current_gauge, prev_gauge, AUTO_SWITCH_LOCKOUT_MS);
     switch_gauge(prev_gauge);
+}
+
+// ********************* Ignition Power Management *********************
+
+/**
+ * @brief Enter standby mode when ignition is turned off
+ *
+ * Turns off the display and backlight to minimize power consumption.
+ * The expansion board polling task continues running at its normal rate
+ * so it can detect when ignition comes back on. BLE scanning is stopped.
+ */
+static void enter_standby_mode(void)
+{
+    if (system_sleeping) return;  // Already sleeping
+    
+    ESP_LOGW("MAIN", "IGNITION OFF — entering standby mode");
+    system_sleeping = true;
+    
+    // 1. Clean up the current gauge display
+    switch (current_gauge) {
+        case GAUGE_CLOCK:         clock_cleanup(); break;
+        case GAUGE_HORIZON:       artificial_horizon_cleanup(); break;
+        case GAUGE_TILT:          tilt_cleanup(); break;
+        case GAUGE_TIRE_PRESSURE: tire_pressure_cleanup(); ble_tpms_set_fast_scan(false); break;
+        case GAUGE_BOOST:         boost_cleanup(); break;
+        case GAUGE_COMPASS:       compass_cleanup(); break;
+        case GAUGE_EGT:           egt_cleanup(); break;
+        default: break;
+    }
+    
+    // 2. Clear the screen
+    lv_obj_clean(lv_scr_act());
+    touch_overlay = NULL;
+    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);
+    lv_obj_invalidate(lv_scr_act());
+    lv_timer_handler();  // Flush the black screen before turning off
+    
+    // 3. Turn off backlight and display panel
+    Set_Backlight(0);
+    esp_lcd_panel_disp_on_off(panel_handle, false);
+    
+    // 4. Stop BLE scanning to save radio power
+    ble_tpms_stop_scan();
+    
+    // 5. Stop WiFi to save radio power
+    esp_wifi_disconnect();
+    esp_wifi_stop();
+    
+    // 6. Reduce CPU frequency to 80 MHz to save power
+    rtc_cpu_freq_config_t freq_config;
+    if (rtc_clk_cpu_freq_mhz_to_config(80, &freq_config)) {
+        rtc_clk_cpu_freq_set_config(&freq_config);
+        ESP_LOGW("MAIN", "CPU frequency reduced to 80 MHz");
+    }
+    
+    ESP_LOGW("MAIN", "Standby mode active — display off, WiFi+BLE stopped, CPU 80MHz");
+}
+
+/**
+ * @brief Exit standby mode when ignition is turned on
+ *
+ * Re-enables the display, turns on the backlight, shows the clock gauge,
+ * and resumes BLE scanning.
+ */
+static void exit_standby_mode(void)
+{
+    if (!system_sleeping) return;  // Already awake
+    
+    ESP_LOGW("MAIN", "IGNITION ON — waking up from standby");
+    
+    // 1. Restore CPU frequency to 160 MHz
+    rtc_cpu_freq_config_t freq_config;
+    if (rtc_clk_cpu_freq_mhz_to_config(160, &freq_config)) {
+        rtc_clk_cpu_freq_set_config(&freq_config);
+        ESP_LOGW("MAIN", "CPU frequency restored to 160 MHz");
+    }
+    
+    // 2. Turn on display panel and backlight
+    esp_lcd_panel_disp_on_off(panel_handle, true);
+    Set_Backlight(LCD_Backlight);
+    
+    // 3. Show the clock gauge (always start with clock after wake)
+    current_gauge = GAUGE_CLOCK;
+    clock_init();
+    clock_set_night_mode(test_night_mode);
+    clock_set_visible(true);
+    
+    // Recreate touch overlay if touch is available
+    if (touch_available) {
+        create_touch_overlay();
+    }
+    
+    // 4. Restart WiFi and re-sync time
+    esp_wifi_start();
+    // WiFi event handler will auto-reconnect; NTP will re-sync on connect
+    
+    // 5. Resume BLE scanning
+    ble_tpms_start_scan();
+    
+    // 6. Reset ADC config flag (will reconfigure when boost gauge shown)
+    map_adc_configured = false;
+    
+    // 7. Reset activity timestamp
+    last_activity_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    
+    system_sleeping = false;
+    ESP_LOGW("MAIN", "System active — clock displayed, WiFi+BLE resumed");
 }
 
 void switch_gauge(gauge_type_t new_gauge)
@@ -167,10 +421,10 @@ void switch_gauge(gauge_type_t new_gauge)
             ESP_LOGI("MAIN", "Cleaning up horizon");
             artificial_horizon_cleanup();
             break;
-        // case GAUGE_TILT:
-        //     ESP_LOGI("MAIN", "Cleaning up tilt");
-        //     tilt_cleanup();
-        //     break;
+        case GAUGE_TILT:
+            ESP_LOGI("MAIN", "Cleaning up tilt");
+            tilt_cleanup();
+            break;
         case GAUGE_TIRE_PRESSURE:
             ESP_LOGI("MAIN", "Cleaning up tire pressure");
             tire_pressure_cleanup();
@@ -179,6 +433,14 @@ void switch_gauge(gauge_type_t new_gauge)
         case GAUGE_BOOST:
             ESP_LOGI("MAIN", "Cleaning up boost gauge");
             boost_cleanup();
+            break;
+        case GAUGE_COMPASS:
+            ESP_LOGI("MAIN", "Cleaning up compass gauge");
+            compass_cleanup();
+            break;
+        case GAUGE_EGT:
+            ESP_LOGI("MAIN", "Cleaning up EGT gauge");
+            egt_cleanup();
             break;
         default:
             break;
@@ -221,6 +483,16 @@ void switch_gauge(gauge_type_t new_gauge)
             boost_init();
             boost_set_night_mode(test_night_mode);
             break;
+        case GAUGE_COMPASS:
+            ESP_LOGI("MAIN", "Initializing compass gauge (%s mode)", test_night_mode ? "night" : "day");
+            compass_init();
+            compass_set_night_mode(test_night_mode);
+            break;
+        case GAUGE_EGT:
+            ESP_LOGI("MAIN", "Initializing EGT gauge (%s mode)", test_night_mode ? "night" : "day");
+            egt_init();
+            egt_set_night_mode(test_night_mode);
+            break;
         default:
             break;
     }
@@ -236,7 +508,9 @@ void switch_gauge(gauge_type_t new_gauge)
              current_gauge == GAUGE_HORIZON ? "Horizon" :
              current_gauge == GAUGE_TILT ? "Tilt" :
              current_gauge == GAUGE_TIRE_PRESSURE ? "Tire Pressure" :
-             current_gauge == GAUGE_BOOST ? "Boost" : "Unknown",
+             current_gauge == GAUGE_BOOST ? "Boost" :
+             current_gauge == GAUGE_COMPASS ? "Compass" :
+             current_gauge == GAUGE_EGT ? "EGT" : "Unknown",
              test_night_mode ? "night" : "day");
 }
 
@@ -245,6 +519,12 @@ void Driver_Loop(void *parameter)
     Wireless_Init();
     while(1)
     {
+        // Skip all sensor polling while in standby — just sleep
+        if (system_sleeping) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+        
         QMI8658_Loop();
         PCF85063_Loop();
         BAT_Get_Volts();
@@ -262,9 +542,7 @@ void Driver_Loop(void *parameter)
         }
         
         // Update tilt gauge with IMU roll data when visible
-        if (current_gauge == GAUGE_TILT) {
-            tilt_set_angle(current_roll);
-        }
+        // NOTE: tilt update moved to main app_main loop for LVGL thread safety
         
         // Auto-switch to warning gauges based on thresholds
         // Priority: Roll (tilt) > Pitch (horizon) > Tire pressure (future)
@@ -325,6 +603,16 @@ void Driver_Init(void)
     I2C_Init();
     EXIO_Init();                    // Example Initialize EXIO
     expansion_board_init();          // Initialize expansion board (MCP23017, ADS1115, QMC5883L)
+
+    /* NVS flash must be initialised before settings_load() can read it */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        ret = nvs_flash_init();
+    }
+    ESP_LOGI("MAIN", "NVS flash init: %s", esp_err_to_name(ret));
+
+    settings_load();                   // Restore calibration + unit preferences from NVS
     Flash_Searching();
     PCF85063_Init();
     QMI8658_Init();
@@ -399,7 +687,43 @@ void app_main(void)
 
     ESP_LOGI("MAIN", "Button input active on GPIO%d", CONFIG_BUTTON_NEXT_GPIO);
 
+    // Check initial ignition state — if ignition is OFF at boot, go straight to standby
+    if (exbd_has_io()) {
+        ignition_on = exbd_get_input(EXBD_INPUT_IGNITION);
+        if (!ignition_on) {
+            ESP_LOGW("MAIN", "Ignition OFF at boot — entering standby immediately");
+            enter_standby_mode();
+        } else {
+            ESP_LOGI("MAIN", "Ignition ON at boot — normal operation");
+        }
+    } else {
+        ESP_LOGI("MAIN", "No I/O expander — skipping ignition check");
+    }
+
     while (1) {
+        // *** Ignition power management ***
+        // Check ignition state from expansion board (IO1, active high after IPOL)
+        if (exbd_has_io()) {
+            bool ign_now = exbd_get_input(EXBD_INPUT_IGNITION);
+            
+            if (ign_now && !ignition_on) {
+                // Ignition just turned ON — wake up
+                ignition_on = true;
+                exit_standby_mode();
+            } else if (!ign_now && ignition_on) {
+                // Ignition just turned OFF — go to standby
+                ignition_on = false;
+                enter_standby_mode();
+            }
+        }
+        
+        // While in standby, skip all gauge/input processing — just poll slowly
+        if (system_sleeping) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            lv_timer_handler();  // Keep LVGL tick alive (minimal)
+            continue;
+        }
+        
         // Check for button press (GPIO0 boot button or GPIO43 next)
         if (button_input_pressed()) {
             ESP_LOGI("MAIN", "Next button pressed - switching gauge");
@@ -412,27 +736,39 @@ void app_main(void)
             handle_prev_gauge_input();
         }
         
-        // Check expansion board select button (if present)
+        // Check expansion board select button — gauge-specific actions
         if (expansion_board_detected() && exbd_select_pressed()) {
-            ESP_LOGI("MAIN", "Expansion select button - switching gauge");
-            handle_next_gauge_input();
+            handle_select_action();
         }
         
-        // Auto night mode from expansion board lights input
+        // Night mode handling:
+        // With expansion board: follow lights input
+        // Without expansion board: always day mode
         if (expansion_board_detected()) {
             bool lights_on = exbd_get_input(EXBD_INPUT_LIGHTS);
             if (lights_on != test_night_mode) {
                 test_night_mode = lights_on;
                 ESP_LOGI("MAIN", "Lights input → %s mode", lights_on ? "NIGHT" : "DAY");
-                // Apply night mode to the currently active gauge
                 switch (current_gauge) {
                     case GAUGE_CLOCK:         clock_set_night_mode(test_night_mode); break;
                     case GAUGE_HORIZON:       artificial_horizon_set_night_mode(test_night_mode); break;
                     case GAUGE_TILT:          tilt_set_night_mode(test_night_mode); break;
                     case GAUGE_TIRE_PRESSURE: tire_pressure_set_night_mode(test_night_mode); break;
                     case GAUGE_BOOST:         boost_set_night_mode(test_night_mode); break;
+                    case GAUGE_COMPASS:       compass_set_night_mode(test_night_mode); break;
+                    case GAUGE_EGT:           egt_set_night_mode(test_night_mode); break;
                     default: break;
                 }
+            }
+        } else if (test_night_mode) {
+            /* No expansion board — force day mode */
+            test_night_mode = false;
+            ESP_LOGI("MAIN", "No expansion board — forcing DAY mode");
+            switch (current_gauge) {
+                case GAUGE_CLOCK:         clock_set_night_mode(false); break;
+                case GAUGE_TILT:          tilt_set_night_mode(false); break;
+                case GAUGE_TIRE_PRESSURE: tire_pressure_set_night_mode(false); break;
+                default: break;
             }
         }
         
@@ -471,6 +807,47 @@ void app_main(void)
                     ESP_LOGE("MAP", "ADC read failed: %s", esp_err_to_name(adc_ret));
                 }
             }
+        }
+
+        // Read compass heading and update compass gauge (only when active)
+        if (current_gauge == GAUGE_COMPASS && expansion_board_detected()) {
+            float heading = 0.0f;
+            if (lis3mdl_get_heading(&heading) == ESP_OK) {
+                compass_set_heading(heading);
+            }
+        }
+
+        // Read EGT and update gauge (only when active)
+        if (current_gauge == GAUGE_EGT && mcp9600_is_ready()) {
+            float egt_temp = 0.0f;
+            if (mcp9600_read_temperature(&egt_temp) == ESP_OK) {
+                static int egt_log_counter = 0;
+                if ((egt_log_counter++ % 50) == 0) {
+                    ESP_LOGI("EGT", "Temp=%.1f°C", egt_temp);
+                }
+                egt_set_value(egt_temp);
+            }
+        }
+
+        // EGT alert auto-switch: if on another gauge and MCP9600 alert fires,
+        // switch to EGT gauge so the driver can see the warning.
+        if (current_gauge != GAUGE_EGT && mcp9600_is_ready()) {
+            uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            /* Respect the manual-switch lockout so we don't fight the user */
+            if ((now_ms - manual_switch_time) > AUTO_SWITCH_LOCKOUT_MS) {
+                uint8_t mcp_status = 0;
+                if (mcp9600_read_status(&mcp_status) == ESP_OK) {
+                    if (mcp_status & (MCP9600_STATUS_ALERT1 | MCP9600_STATUS_ALERT2)) {
+                        ESP_LOGW("MAIN", "EGT ALERT (status=0x%02X) — auto-switching to EGT gauge", mcp_status);
+                        switch_gauge(GAUGE_EGT);
+                    }
+                }
+            }
+        }
+
+        // Update tilt gauge with IMU roll data (must run in LVGL task)
+        if (current_gauge == GAUGE_TILT) {
+            tilt_set_angle(imu_get_roll());
         }
 
         // Handle pending auto-switch requests from Driver_Loop (thread-safe)

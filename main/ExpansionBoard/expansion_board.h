@@ -105,9 +105,15 @@ esp_err_t expansion_board_init(void);
 
 /**
  * @brief Check if the expansion board was detected during init
- * @return true if at least the MCP23017 was found
+ * @return true if at least one device was found
  */
 bool expansion_board_detected(void);
+
+/**
+ * @brief Check if the MCP23017 I/O expander is available
+ * @return true if MCP23017 was found (digital inputs/outputs work)
+ */
+bool exbd_has_io(void);
 
 /*******************************************************************************
  * Digital Inputs

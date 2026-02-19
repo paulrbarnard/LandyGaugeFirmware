@@ -12,6 +12,7 @@ extern "C" {
 
 #include "lvgl.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 /**
  * @brief Initialize the tire pressure gauge display
@@ -66,6 +67,12 @@ void tire_pressure_toggle_units(void);
  * @param use_bar true for Bar, false for PSI
  */
 void tire_pressure_set_units_bar(bool use_bar);
+
+/**
+ * @brief Set TPMS display mode (pressure + temperature units)
+ * @param mode 0=BAR°C, 1=PSI°C, 2=BAR°F, 3=PSI°F
+ */
+void tire_pressure_set_mode(uint8_t mode);
 
 /**
  * @brief Clean up tire pressure gauge resources

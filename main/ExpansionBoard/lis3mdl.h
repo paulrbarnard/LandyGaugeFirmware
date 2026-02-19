@@ -129,11 +129,13 @@ typedef struct {
     float z;    // µT
 } lis3mdl_data_t;
 
-/** Hard-iron calibration offsets */
+/** Hard-iron + soft-iron calibration data */
 typedef struct {
     int16_t x_offset;
     int16_t y_offset;
     int16_t z_offset;
+    float   scale_x;       /* soft-iron half-spread X (>0) */
+    float   scale_y;       /* soft-iron half-spread Y (>0) */
 } lis3mdl_calibration_t;
 
 /*******************************************************************************
@@ -181,6 +183,12 @@ esp_err_t lis3mdl_get_heading(float *heading);
 void lis3mdl_set_calibration(const lis3mdl_calibration_t *cal);
 
 /**
+ * @brief Get current calibration values (offsets + scale)
+ * @param cal Pointer to store calibration data
+ */
+void lis3mdl_get_calibration(lis3mdl_calibration_t *cal);
+
+/**
  * @brief Read the chip temperature
  * @param temp_c Pointer to store temperature in °C
  * @return ESP_OK on success
@@ -192,6 +200,52 @@ esp_err_t lis3mdl_read_temperature(float *temp_c);
  * @return true if XYZ data ready
  */
 bool lis3mdl_data_ready(void);
+
+/**
+ * @brief Start live hard-iron calibration
+ *
+ * Begins tracking min/max raw values on X, Y, Z axes.
+ * The user should slowly rotate the device through a full 360° turn
+ * (ideally in multiple orientations). Call lis3mdl_stop_calibration()
+ * when done to compute and apply offsets.
+ */
+void lis3mdl_start_calibration(void);
+
+/**
+ * @brief Stop calibration and apply computed offsets
+ *
+ * Computes hard-iron offsets as the midpoint of each axis's min/max range
+ * and applies them immediately. Requires at least 10 samples.
+ */
+void lis3mdl_stop_calibration(void);
+
+/**
+ * @brief Check if calibration is in progress
+ * @return true if calibrating
+ */
+bool lis3mdl_is_calibrating(void);
+
+/**
+ * @brief Get number of calibration samples collected
+ * @return Sample count
+ */
+int lis3mdl_get_cal_sample_count(void);
+
+/**
+ * @brief Get calibration progress (0.0 to 1.0)
+ *
+ * Based on the magnetic field spread captured on X and Y axes.
+ * Reaches 1.0 when sufficient rotation has been detected.
+ *
+ * @return Progress fraction (0.0 = not started, 1.0 = complete)
+ */
+float lis3mdl_get_cal_progress(void);
+
+/**
+ * @brief Check if calibration quality is sufficient
+ * @return true if enough spread has been captured on both axes
+ */
+bool lis3mdl_cal_is_good(void);
 
 #ifdef __cplusplus
 }

@@ -13,8 +13,16 @@ static const char *TAG = "TIRE_PRESSURE";
 // Display mode - can be changed at runtime
 static bool night_mode = true;
 
-// Pressure units - false = PSI, true = Bar
-static bool use_bar_units = false;
+// Unit modes: 0=BAR°C, 1=PSI°C, 2=BAR°F, 3=PSI°F
+#define TPMS_MODE_BAR_C  0
+#define TPMS_MODE_PSI_C  1
+#define TPMS_MODE_BAR_F  2
+#define TPMS_MODE_PSI_F  3
+#define TPMS_MODE_COUNT  4
+static uint8_t tpms_mode = TPMS_MODE_PSI_C;  // default PSI °C
+
+static inline bool tpms_is_bar(void)        { return !(tpms_mode & 1); }
+static inline bool tpms_is_fahrenheit(void) { return  (tpms_mode & 2); }
 
 // Pressure values in PSI (stored internally in PSI, converted for display if needed)
 static float pressure_values[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // FL, FR, RL, RR
@@ -51,7 +59,7 @@ static void update_pressure_label(int wheel)
     if (wheel < 0 || wheel > 3 || !pressure_labels[wheel]) return;
     
     char buf[16];
-    if (use_bar_units) {
+    if (tpms_is_bar()) {
         float bar_value = pressure_values[wheel] * PSI_TO_BAR;
         snprintf(buf, sizeof(buf), "%.1f", bar_value);
     } else {
@@ -68,7 +76,11 @@ static void update_temp_label(int wheel)
     if (wheel < 0 || wheel > 3 || !temp_labels[wheel]) return;
     
     char buf[16];
-    snprintf(buf, sizeof(buf), "%.0f°", temperature_values[wheel]);
+    float temp = temperature_values[wheel];
+    if (tpms_is_fahrenheit()) {
+        temp = temp * 9.0f / 5.0f + 32.0f;
+    }
+    snprintf(buf, sizeof(buf), "%.0f°", temp);
     lv_label_set_text(temp_labels[wheel], buf);
 }
 
@@ -99,10 +111,17 @@ static void update_all_pressure_labels(void)
 /**
  * @brief Update units label text
  */
+static const char *tpms_mode_labels[TPMS_MODE_COUNT] = {
+    "bar\n°C",   /* 0 */
+    "psi\n°C",   /* 1 */
+    "bar\n°F",   /* 2 */
+    "psi\n°F",   /* 3 */
+};
+
 static void update_units_label(void)
 {
     if (units_label) {
-        lv_label_set_text(units_label, use_bar_units ? "bar" : "psi");
+        lv_label_set_text(units_label, tpms_mode_labels[tpms_mode]);
     }
 }
 
@@ -262,6 +281,7 @@ static void draw_gauge_face(void)
     units_label = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(units_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(units_label, units_color, 0);
+    lv_obj_set_style_text_align(units_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(units_label, LV_ALIGN_CENTER, 0, 0);
     
     // Update all labels with current values
@@ -360,18 +380,37 @@ void tire_pressure_set_all_values(float fl, float fr, float rl, float rr)
 
 void tire_pressure_toggle_units(void)
 {
-    use_bar_units = !use_bar_units;
+    tpms_mode = (tpms_mode + 1) % TPMS_MODE_COUNT;
     update_units_label();
     update_all_pressure_labels();
-    ESP_LOGI(TAG, "Units toggled to %s", use_bar_units ? "bar" : "psi");
+    ESP_LOGI(TAG, "Units toggled to %s", tpms_mode_labels[tpms_mode]);
+
+    /* Persist to NVS */
+    extern void settings_save_tpms_mode(uint8_t);
+    settings_save_tpms_mode(tpms_mode);
 }
 
 void tire_pressure_set_units_bar(bool use_bar)
 {
-    if (use_bar_units == use_bar) return;
-    
-    use_bar_units = use_bar;
-    update_units_label();
-    update_all_pressure_labels();
-    ESP_LOGI(TAG, "Units set to %s", use_bar_units ? "bar" : "psi");
+    /* Legacy — maps to BAR°C or PSI°C */
+    uint8_t mode = use_bar ? TPMS_MODE_BAR_C : TPMS_MODE_PSI_C;
+    if (tpms_mode == mode) return;
+    tpms_mode = mode;
+    if (gauge_container) {
+        update_units_label();
+        update_all_pressure_labels();
+    }
+    ESP_LOGI(TAG, "Units set to %s", tpms_mode_labels[tpms_mode]);
+}
+
+void tire_pressure_set_mode(uint8_t mode)
+{
+    if (mode >= TPMS_MODE_COUNT) mode = TPMS_MODE_PSI_C;
+    if (tpms_mode == mode) return;
+    tpms_mode = mode;
+    if (gauge_container) {
+        update_units_label();
+        update_all_pressure_labels();
+    }
+    ESP_LOGI(TAG, "Mode set to %s", tpms_mode_labels[tpms_mode]);
 }

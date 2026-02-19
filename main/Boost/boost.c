@@ -117,6 +117,50 @@ static void update_units_label(void)
     lv_label_set_text(units_label, use_bar_units ? "BAR" : "PSI");
 }
 
+/*******************************************************************************
+ * Zone arc helper — smooth coloured band just OUTSIDE the tick tips (lv_arc)
+ ******************************************************************************/
+#define ZONE_ARC_WIDTH     4
+
+static void draw_zone_arc(float start_angle, float end_angle,
+                          lv_color_t color)
+{
+    int a_start = (int)(start_angle - GAUGE_START_ANGLE + 0.5f);
+    int a_end   = (int)(end_angle   - GAUGE_START_ANGLE + 0.5f);
+
+    /* Outer edge of the band aligns with the outer edge of the tick tips */
+    int outer_r  = MAJOR_TICK_OUTER_R;                     /* 158 */
+    int diameter = outer_r * 2;                             /* 316 */
+
+    /* Tick-circle centre in parent content-area coordinates */
+    int cx = GAUGE_CENTER_X - TICK_OFFSET;                  /* 160 */
+    int cy = GAUGE_CENTER_Y - TICK_OFFSET;                  /* 160 */
+
+    lv_obj_t *arc = lv_arc_create(gauge_container);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+
+    lv_obj_set_size(arc, diameter, diameter);
+    lv_obj_set_style_pad_all(arc, 0, 0);
+    lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(arc, 0, 0);
+
+    /* Use absolute position so arc centre == tick centre
+     * (avoids any theme-padding offset from LV_ALIGN_CENTER) */
+    lv_obj_set_pos(arc, cx - outer_r, cy - outer_r);
+
+    int rotation = (int)(GAUGE_START_ANGLE + 360.0f + 0.5f);  /* 135 */
+    lv_arc_set_rotation(arc, rotation);
+
+    lv_arc_set_bg_angles(arc, a_start, a_end);
+    lv_obj_set_style_arc_color(arc, color, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, ZONE_ARC_WIDTH, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(arc, true, LV_PART_MAIN);
+
+    /* Hide the indicator arc (value-driven part) */
+    lv_obj_set_style_arc_opa(arc, LV_OPA_TRANSP, LV_PART_INDICATOR);
+}
+
 /**
  * @brief Draw the gauge face with tick marks and numbers
  */
@@ -147,54 +191,115 @@ static void draw_gauge_face(void)
     
     lv_color_t accent = get_accent_color(night_mode);
     
-    // Draw tick marks and numbers
-    // Major ticks every 0.5 bar (0, 0.5, 1.0, 1.5, 2.0) with numbers
-    // Minor ticks every 0.1 bar
-    for (int tick = 0; tick <= 20; tick++) {
-        float bar_val = tick * 0.1f;
-        float angle_deg = psi_to_angle(bar_val);
-        float angle_rad = angle_deg * M_PI / 180.0f;
-        
-        bool is_major = (tick % 5 == 0);
-        
-        int outer_r = is_major ? MAJOR_TICK_OUTER_R : MINOR_TICK_OUTER_R;
-        int inner_r = is_major ? MAJOR_TICK_INNER_R : MINOR_TICK_INNER_R;
-        int line_width = is_major ? 6 : 3;
-        
-        // Determine tick color (warning zone ticks in warning color)
-        lv_color_t tick_color = (bar_val >= BOOST_WARNING_PSI) ? COLOR_WARNING : accent;
-        
-        // Create tick mark
-        lv_obj_t *tick = lv_line_create(gauge_container);
-        lv_point_t *tick_points = malloc(2 * sizeof(lv_point_t));
-        
-        tick_points[0].x = center_x + cosf(angle_rad) * outer_r - TICK_OFFSET;
-        tick_points[0].y = center_y + sinf(angle_rad) * outer_r - TICK_OFFSET;
-        tick_points[1].x = center_x + cosf(angle_rad) * inner_r - TICK_OFFSET;
-        tick_points[1].y = center_y + sinf(angle_rad) * inner_r - TICK_OFFSET;
-        
-        lv_line_set_points(tick, tick_points, 2);
-        lv_obj_set_style_line_width(tick, line_width, 0);
-        lv_obj_set_style_line_color(tick, tick_color, 0);
-        lv_obj_set_style_line_rounded(tick, false, 0);
-        
-        // Add numbers for major ticks
-        if (is_major) {
-            lv_obj_t *num_label = lv_label_create(gauge_container);
-            char num_text[8];
-            snprintf(num_text, sizeof(num_text), "%.1f", bar_val);
-            lv_label_set_text(num_label, num_text);
-            
-            lv_color_t num_color = (bar_val >= BOOST_WARNING_PSI) ? COLOR_WARNING : accent;
-            lv_obj_set_style_text_color(num_label, num_color, 0);
-            lv_obj_set_style_text_font(num_label, &lv_font_montserrat_32, 0);
-            
-            int num_x = center_x + cosf(angle_rad) * NUMBER_RADIUS;
-            int num_y = center_y + sinf(angle_rad) * NUMBER_RADIUS;
-            lv_obj_align(num_label, LV_ALIGN_CENTER,
-                         num_x - center_x,
-                         num_y - center_y);
+    // Draw tick marks and numbers — layout depends on selected unit
+    // BAR: major every 0.5, minor every 0.1  (0 .. 2.0 BAR)
+    // PSI: major every 5,   minor every 1    (0 .. 29 PSI)
+    //
+    // psi_to_angle() maps 0..2.0 (BAR) to the gauge sweep,
+    // so we convert display values to BAR before computing angles.
+
+    float warn_bar = BOOST_WARNING_PSI;            /* 1.5 BAR */
+
+    if (use_bar_units) {
+        /* ── BAR ticks ──────────────────────────────────────────────── */
+        for (int tick = 0; tick <= 20; tick++) {
+            float bar_val = tick * 0.1f;
+            float angle_deg = psi_to_angle(bar_val);
+            float angle_rad = angle_deg * M_PI / 180.0f;
+
+            bool is_major = (tick % 5 == 0);
+
+            int outer_r = is_major ? MAJOR_TICK_OUTER_R : MINOR_TICK_OUTER_R;
+            int inner_r = is_major ? MAJOR_TICK_INNER_R : MINOR_TICK_INNER_R;
+            int line_width = is_major ? 6 : 3;
+
+            lv_color_t tick_color = (bar_val >= warn_bar) ? COLOR_WARNING : accent;
+
+            lv_obj_t *tick_line = lv_line_create(gauge_container);
+            lv_point_t *tick_points = malloc(2 * sizeof(lv_point_t));
+
+            tick_points[0].x = center_x + cosf(angle_rad) * outer_r - TICK_OFFSET;
+            tick_points[0].y = center_y + sinf(angle_rad) * outer_r - TICK_OFFSET;
+            tick_points[1].x = center_x + cosf(angle_rad) * inner_r - TICK_OFFSET;
+            tick_points[1].y = center_y + sinf(angle_rad) * inner_r - TICK_OFFSET;
+
+            lv_line_set_points(tick_line, tick_points, 2);
+            lv_obj_set_style_line_width(tick_line, line_width, 0);
+            lv_obj_set_style_line_color(tick_line, tick_color, 0);
+            lv_obj_set_style_line_rounded(tick_line, false, 0);
+
+            if (is_major) {
+                lv_obj_t *num_label = lv_label_create(gauge_container);
+                char num_text[8];
+                snprintf(num_text, sizeof(num_text), "%.1f", bar_val);
+                lv_label_set_text(num_label, num_text);
+
+                lv_color_t num_color = (bar_val >= warn_bar) ? COLOR_WARNING : accent;
+                lv_obj_set_style_text_color(num_label, num_color, 0);
+                lv_obj_set_style_text_font(num_label, &lv_font_montserrat_32, 0);
+
+                int num_x = center_x + cosf(angle_rad) * NUMBER_RADIUS;
+                int num_y = center_y + sinf(angle_rad) * NUMBER_RADIUS;
+                lv_obj_align(num_label, LV_ALIGN_CENTER,
+                             num_x - center_x,
+                             num_y - center_y);
+            }
         }
+    } else {
+        /* ── PSI ticks ──────────────────────────────────────────────── */
+        int psi_max = (int)(BOOST_MAX_PSI * BAR_TO_PSI + 0.5f);   /* 29 */
+        float warn_psi = warn_bar * BAR_TO_PSI;                    /* ~21.8 */
+
+        for (int psi = 0; psi <= psi_max; psi++) {
+            float bar_val = (float)psi * PSI_TO_BAR;
+            float angle_deg = psi_to_angle(bar_val);
+            float angle_rad = angle_deg * M_PI / 180.0f;
+
+            bool is_major = (psi % 5 == 0);
+
+            int outer_r = is_major ? MAJOR_TICK_OUTER_R : MINOR_TICK_OUTER_R;
+            int inner_r = is_major ? MAJOR_TICK_INNER_R : MINOR_TICK_INNER_R;
+            int line_width = is_major ? 6 : 3;
+
+            lv_color_t tick_color = ((float)psi >= warn_psi) ? COLOR_WARNING : accent;
+
+            lv_obj_t *tick_line = lv_line_create(gauge_container);
+            lv_point_t *tick_points = malloc(2 * sizeof(lv_point_t));
+
+            tick_points[0].x = center_x + cosf(angle_rad) * outer_r - TICK_OFFSET;
+            tick_points[0].y = center_y + sinf(angle_rad) * outer_r - TICK_OFFSET;
+            tick_points[1].x = center_x + cosf(angle_rad) * inner_r - TICK_OFFSET;
+            tick_points[1].y = center_y + sinf(angle_rad) * inner_r - TICK_OFFSET;
+
+            lv_line_set_points(tick_line, tick_points, 2);
+            lv_obj_set_style_line_width(tick_line, line_width, 0);
+            lv_obj_set_style_line_color(tick_line, tick_color, 0);
+            lv_obj_set_style_line_rounded(tick_line, false, 0);
+
+            if (is_major) {
+                lv_obj_t *num_label = lv_label_create(gauge_container);
+                char num_text[8];
+                snprintf(num_text, sizeof(num_text), "%d", psi);
+                lv_label_set_text(num_label, num_text);
+
+                lv_color_t num_color = ((float)psi >= warn_psi) ? COLOR_WARNING : accent;
+                lv_obj_set_style_text_color(num_label, num_color, 0);
+                lv_obj_set_style_text_font(num_label, &lv_font_montserrat_32, 0);
+
+                int num_x = center_x + cosf(angle_rad) * NUMBER_RADIUS;
+                int num_y = center_y + sinf(angle_rad) * NUMBER_RADIUS;
+                lv_obj_align(num_label, LV_ALIGN_CENTER,
+                             num_x - center_x,
+                             num_y - center_y);
+            }
+        }
+    }
+
+    /* ── Warning zone arc on outside of tick marks ─────────────────── */
+    {
+        float a_warn = psi_to_angle(BOOST_WARNING_PSI);
+        float a_max  = psi_to_angle(BOOST_MAX_PSI);
+        draw_zone_arc(a_warn, a_max, COLOR_WARNING);
     }
     
     // Create units label at bottom ("PSI" or "BAR")
@@ -263,11 +368,20 @@ void boost_init(void)
     ESP_LOGI(TAG, "Boost gauge initialized");
 }
 
+/* Minimum change (BAR) before triggering a needle redraw.
+   Prevents constant invalidation from starving LVGL input processing. */
+#define BOOST_REDRAW_THRESHOLD  0.005f
+
 void boost_set_value(float psi)
 {
     // Clamp to valid range
     if (psi < BOOST_MIN_PSI) psi = BOOST_MIN_PSI;
     if (psi > BOOST_MAX_PSI) psi = BOOST_MAX_PSI;
+    
+    // Skip redraw if value hasn't changed enough
+    if (fabsf(psi - current_boost_psi) < BOOST_REDRAW_THRESHOLD) {
+        return;
+    }
     
     current_boost_psi = psi;
     update_needle();
@@ -320,13 +434,23 @@ void boost_set_units_bar(bool use_bar)
     if (use_bar_units == use_bar) return;
     
     use_bar_units = use_bar;
-    update_units_label();
+    /* Redraw entire gauge with correct scale (only if already created) */
+    if (gauge_container) {
+        draw_gauge_face();
+        create_needle();
+    }
     ESP_LOGI(TAG, "Units set to %s", use_bar_units ? "bar" : "psi");
 }
 
 void boost_toggle_units(void)
 {
     use_bar_units = !use_bar_units;
-    update_units_label();
+    /* Redraw entire gauge with correct scale */
+    draw_gauge_face();
+    create_needle();
     ESP_LOGI(TAG, "Units toggled to %s", use_bar_units ? "bar" : "psi");
+
+    /* Persist to NVS */
+    extern void settings_save_boost_units(bool);
+    settings_save_boost_units(use_bar_units);
 }
