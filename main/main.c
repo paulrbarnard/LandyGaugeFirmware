@@ -916,8 +916,14 @@ void app_main(void)
         }
 
         // Update tilt gauge with IMU roll data (must run in LVGL task)
+        // Rate-limited to ~15 FPS to keep rendering load low and touch responsive
         if (current_gauge == GAUGE_TILT) {
-            tilt_set_angle(imu_get_roll());
+            static uint32_t last_tilt_redraw_ms = 0;
+            uint32_t tilt_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((tilt_now - last_tilt_redraw_ms) >= 66) {  // ~15 FPS
+                last_tilt_redraw_ms = tilt_now;
+                tilt_set_angle(imu_get_roll());
+            }
         }
 
         // *** Auto-switch alarm system — checks tilt, EGT, TPMS in priority order ***

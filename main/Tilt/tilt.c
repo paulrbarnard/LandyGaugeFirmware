@@ -301,8 +301,9 @@ static void draw_horizon_line_cb(lv_event_t *e)
     lv_area_t obj_coords;
     lv_obj_get_coords(obj, &obj_coords);
     
-    int32_t center_x = (obj_coords.x1 + obj_coords.x2) / 2;
-    int32_t center_y = (obj_coords.y1 + obj_coords.y2) / 2;
+    // Use display center (object may be smaller than full screen)
+    int32_t center_x = obj_coords.x1 + (obj_coords.x2 - obj_coords.x1) / 2;
+    int32_t center_y = obj_coords.y1 + (obj_coords.y2 - obj_coords.y1) / 2;
     
     // Line extends from left to right, stopping short of scale arcs
     int32_t line_half_len = SCALE_RADIUS - 2;
@@ -348,8 +349,10 @@ void tilt_init(void) {
     scale_line_color = get_accent_color(night_mode);
 
     // Create static horizontal reference line (behind the image)
+    // Sized to just cover the line's sweep area (2 * (SCALE_RADIUS-2) = 280)
+    // so invalidation doesn't overlap the full-screen scale objects.
     horizon_line_obj = lv_obj_create(tilt_gauge);
-    lv_obj_set_size(horizon_line_obj, TILT_SIZE, TILT_SIZE);
+    lv_obj_set_size(horizon_line_obj, 280, 280);
     lv_obj_center(horizon_line_obj);
     lv_obj_set_style_bg_opa(horizon_line_obj, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(horizon_line_obj, 0, 0);
