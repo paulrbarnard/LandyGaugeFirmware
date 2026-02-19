@@ -143,6 +143,12 @@ void ble_tpms_clear_pressure_drop_alarm(void);
 tpms_position_t ble_tpms_get_pressure_drop_position(void);
 
 /**
+ * @brief Check if any TPMS sensor has reported data
+ * @return true if at least one sensor has sent valid data
+ */
+bool ble_tpms_any_sensor_present(void);
+
+/**
  * @brief Check if BLE TPMS is currently scanning
  * @return true if scanning active
  */

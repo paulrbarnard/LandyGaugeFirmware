@@ -335,6 +335,14 @@ bool ble_tpms_any_low_pressure(float threshold_bar)
     return false;
 }
 
+bool ble_tpms_any_sensor_present(void)
+{
+    for (int i = 0; i < TPMS_POSITION_COUNT; i++) {
+        if (sensor_data[i].valid) return true;
+    }
+    return false;
+}
+
 bool ble_tpms_check_pressure_drop_alarm(void)
 {
     return pressure_drop_alarm;
@@ -484,11 +492,12 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     data->valid = true;
 
     // Check for rapid pressure drop (alarm condition)
-    if (previous_pressure_valid[position]) {
+    // Only trigger if the drop happened within 60 seconds (not a stale comparison)
+    if (previous_pressure_valid[position] && interval_ms > 0 && interval_ms <= 60000) {
         float drop = previous_pressure_psi[position] - data->pressure_psi;
         if (drop >= TPMS_PRESSURE_DROP_THRESHOLD_PSI) {
-            ESP_LOGW(TAG, "PRESSURE DROP ALARM: %s dropped %.1f PSI (%.1f -> %.1f)",
-                     ble_tpms_position_str(position), drop,
+            ESP_LOGW(TAG, "PRESSURE DROP ALARM: %s dropped %.1f PSI in %lums (%.1f -> %.1f)",
+                     ble_tpms_position_str(position), drop, interval_ms,
                      previous_pressure_psi[position], data->pressure_psi);
             pressure_drop_alarm = true;
             pressure_drop_position = position;

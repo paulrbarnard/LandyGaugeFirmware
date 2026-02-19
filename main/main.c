@@ -81,14 +81,12 @@ static bool should_skip_gauge(gauge_type_t g)
 }
 
 // Auto-switch thresholds (use yellow warning levels)
-#define AUTO_SWITCH_ROLL_THRESHOLD  30.0f  // Switch to tilt gauge
-#define AUTO_SWITCH_PITCH_THRESHOLD 35.0f  // Switch to horizon gauge
-#define AUTO_SWITCH_LOCKOUT_MS      5000   // 5 second lockout after manual switch
+#define AUTO_SWITCH_ROLL_THRESHOLD  30.0f  // Switch to tilt gauge (yellow zone)
+#define AUTO_SWITCH_LOCKOUT_MS      5000   // 5 second lockout after manual/auto switch
 #define INACTIVITY_TIMEOUT_MS       300000 // 5 minutes = 300,000 ms
 
 static uint32_t manual_switch_time = 0;    // Timestamp of last manual switch
 static uint32_t last_activity_time = 0;    // Timestamp of last activity (for auto-return to clock)
-static bool auto_switch_enabled = false;   // Disabled for now - manual switching only (set true to re-enable)
 
 // Thread-safe pending switch request (Driver_Loop sets, main loop handles)
 static volatile gauge_type_t pending_switch = GAUGE_COUNT;  // GAUGE_COUNT = no pending switch
@@ -122,6 +120,92 @@ static void handle_next_gauge_input(void);
 static void handle_prev_gauge_input(void);
 static void enter_standby_mode(void);
 static void exit_standby_mode(void);
+
+/*******************************************************************************
+ * Auto-switch alarm system
+ *
+ * Table-driven alarm checks.  Each entry has a check function that returns
+ * true when the alarm condition is active, and a target gauge to switch to.
+ * Entries are evaluated in priority order — first active alarm wins.
+ * A lockout timer prevents fighting with the user after manual navigation.
+ *
+ * To add a new alarm:
+ *   1. Write a static bool alarm_check_xxx(void) function
+ *   2. Add an entry to alarm_table[] at the desired priority position
+ ******************************************************************************/
+
+typedef struct {
+    bool (*check_fn)(void);           /* true = alarm condition active */
+    gauge_type_t target;              /* gauge to display              */
+    const char *name;                 /* for log messages              */
+} alarm_entry_t;
+
+/* ── Individual alarm check functions ──────────────────────────────────── */
+
+/** Tilt alarm: IMU roll reaches yellow zone (30°+) */
+static bool alarm_check_tilt(void)
+{
+    float roll = imu_get_roll();
+    return fabsf(roll) >= AUTO_SWITCH_ROLL_THRESHOLD;
+}
+
+/** EGT alarm: MCP9600 hardware alert (680°C warning or 750°C danger) */
+static bool alarm_check_egt(void)
+{
+    if (!mcp9600_is_ready()) return false;
+    uint8_t status = 0;
+    if (mcp9600_read_status(&status) != ESP_OK) return false;
+    return (status & (MCP9600_STATUS_ALERT1 | MCP9600_STATUS_ALERT2)) != 0;
+}
+
+/** TPMS alarm: rapid pressure drop (≥5 PSI within 60 s on any tire) */
+static bool alarm_check_tpms_drop(void)
+{
+    if (!ble_tpms_any_sensor_present()) return false;
+    return ble_tpms_check_pressure_drop_alarm();
+}
+
+/* ── Alarm table — evaluated in priority order (highest first) ─────── */
+static const alarm_entry_t alarm_table[] = {
+    { alarm_check_tilt,      GAUGE_TILT,          "Tilt warning"       },
+    { alarm_check_egt,       GAUGE_EGT,           "EGT over-temp"      },
+    { alarm_check_tpms_drop, GAUGE_TIRE_PRESSURE, "TPMS pressure drop" },
+};
+#define ALARM_TABLE_COUNT  (sizeof(alarm_table) / sizeof(alarm_table[0]))
+
+/**
+ * @brief Check all alarm conditions and auto-switch if triggered
+ *
+ * Called every iteration of the main LVGL loop (~10 ms).
+ * Skipped during the manual-switch lockout period.
+ * First active alarm (highest priority) wins; only one switch per cycle.
+ */
+static void check_auto_switch_alarms(void)
+{
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    if ((now - manual_switch_time) < AUTO_SWITCH_LOCKOUT_MS) return;
+
+    for (int i = 0; i < (int)ALARM_TABLE_COUNT; i++) {
+        const alarm_entry_t *a = &alarm_table[i];
+
+        /* Skip if already on the target gauge */
+        if (current_gauge == a->target) continue;
+
+        if (a->check_fn()) {
+            ESP_LOGW("ALARM", "%s — auto-switching to gauge %d", a->name, a->target);
+            last_activity_time = now;
+            manual_switch_time = now;   /* lockout prevents immediate re-trigger */
+
+            /* Clear one-shot alarm flags before switching */
+            if (a->target == GAUGE_TIRE_PRESSURE) {
+                ble_tpms_clear_pressure_drop_alarm();
+            }
+
+            switch_gauge(a->target);
+            return;     /* one switch per cycle */
+        }
+    }
+}
 
 // Recursively strip CLICKABLE from an object and all its descendants
 static void strip_clickable_recursive(lv_obj_t *obj)
@@ -544,48 +628,8 @@ void Driver_Loop(void *parameter)
         // Update tilt gauge with IMU roll data when visible
         // NOTE: tilt update moved to main app_main loop for LVGL thread safety
         
-        // Auto-switch to warning gauges based on thresholds
-        // Priority: Roll (tilt) > Pitch (horizon) > Tire pressure (future)
-        // NOTE: We set pending_switch instead of calling switch_gauge directly
-        //       because LVGL is not thread-safe. Main loop handles the actual switch.
-        if (auto_switch_enabled) {
-            uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            bool lockout_active = (now - manual_switch_time) < AUTO_SWITCH_LOCKOUT_MS;
-            
-            if (!lockout_active) {
-                // Highest priority: Roll exceeds threshold -> switch to tilt gauge
-                if (current_gauge != GAUGE_TILT && fabsf(current_roll) >= AUTO_SWITCH_ROLL_THRESHOLD) {
-                    ESP_LOGW("MAIN", "Auto-switch request: TILT (roll=%.1f exceeds %.1f)",
-                             current_roll, AUTO_SWITCH_ROLL_THRESHOLD);
-                    last_activity_time = now;  // Reset inactivity timer on alarm
-                    pending_switch = GAUGE_TILT;
-                }
-                // Second priority: Pitch exceeds threshold -> switch to horizon gauge
-                else if (current_gauge != GAUGE_HORIZON && fabsf(current_pitch) >= AUTO_SWITCH_PITCH_THRESHOLD) {
-                    ESP_LOGW("MAIN", "Auto-switch request: HORIZON (pitch=%.1f exceeds %.1f)",
-                             current_pitch, AUTO_SWITCH_PITCH_THRESHOLD);
-                    last_activity_time = now;  // Reset inactivity timer on alarm
-                    pending_switch = GAUGE_HORIZON;
-                }
-                // Third priority: Tire pressure rapid drop -> switch to TPMS gauge
-                else if (current_gauge != GAUGE_TIRE_PRESSURE && ble_tpms_check_pressure_drop_alarm()) {
-                    tpms_position_t pos = ble_tpms_get_pressure_drop_position();
-                    ESP_LOGW("MAIN", "Auto-switch request: TIRE_PRESSURE (rapid drop on %s)",
-                             ble_tpms_position_str(pos));
-                    ble_tpms_clear_pressure_drop_alarm();  // Clear after handling
-                    last_activity_time = now;
-                    pending_switch = GAUGE_TIRE_PRESSURE;
-                }
-            }
-            
-            // Auto-return to clock after inactivity timeout
-            if (current_gauge != GAUGE_CLOCK && (now - last_activity_time) >= INACTIVITY_TIMEOUT_MS) {
-                ESP_LOGI("MAIN", "Inactivity timeout (%d min) - requesting clock",
-                         INACTIVITY_TIMEOUT_MS / 60000);
-                last_activity_time = now;  // Reset to prevent repeated switches
-                pending_switch = GAUGE_CLOCK;
-            }
-        }
+        // NOTE: Auto-switch alarms are now handled in the main LVGL loop via
+        //       check_auto_switch_alarms() — see alarm_table[] for the list.
         
         // Periodic BLE TPMS scan restart (every 30 sec)
         ble_tpms_periodic_update();
@@ -829,26 +873,13 @@ void app_main(void)
             }
         }
 
-        // EGT alert auto-switch: if on another gauge and MCP9600 alert fires,
-        // switch to EGT gauge so the driver can see the warning.
-        if (current_gauge != GAUGE_EGT && mcp9600_is_ready()) {
-            uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            /* Respect the manual-switch lockout so we don't fight the user */
-            if ((now_ms - manual_switch_time) > AUTO_SWITCH_LOCKOUT_MS) {
-                uint8_t mcp_status = 0;
-                if (mcp9600_read_status(&mcp_status) == ESP_OK) {
-                    if (mcp_status & (MCP9600_STATUS_ALERT1 | MCP9600_STATUS_ALERT2)) {
-                        ESP_LOGW("MAIN", "EGT ALERT (status=0x%02X) — auto-switching to EGT gauge", mcp_status);
-                        switch_gauge(GAUGE_EGT);
-                    }
-                }
-            }
-        }
-
         // Update tilt gauge with IMU roll data (must run in LVGL task)
         if (current_gauge == GAUGE_TILT) {
             tilt_set_angle(imu_get_roll());
         }
+
+        // *** Auto-switch alarm system — checks tilt, EGT, TPMS in priority order ***
+        check_auto_switch_alarms();
 
         // Handle pending auto-switch requests from Driver_Loop (thread-safe)
         if (pending_switch != GAUGE_COUNT) {
