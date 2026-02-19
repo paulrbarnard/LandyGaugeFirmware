@@ -55,11 +55,14 @@ static float current_boost_psi = 0.0f;
 // Warning color (red/orange)
 #define COLOR_WARNING lv_color_make(255, 60, 0)
 
-// LVGL objects
+/* ── LVGL objects ──────────────────────────────────────────────────── */
 static lv_obj_t *gauge_container = NULL;
-static lv_obj_t *needle = NULL;
+static lv_obj_t *needle_obj = NULL;       /* custom-draw object for the needle   */
+static lv_obj_t *center_cap = NULL;       /* center dot (on top of needle)       */
 static lv_obj_t *units_label = NULL;
-static lv_point_t needle_points[2];
+
+/* Cached needle angle (radians) — updated by update_needle(), read by draw cb */
+static float needle_angle_rad = 0.0f;
 
 /**
  * @brief Convert PSI value to gauge angle
@@ -87,25 +90,54 @@ static lv_color_t get_needle_color(void)
 }
 
 /**
- * @brief Update the needle position
+ * @brief Draw callback for the needle object.
+ *
+ * Drawing the needle via a callback on a single object means both the
+ * old and new positions are rendered inside the same dirty region,
+ * eliminating the tearing caused by two separate lv_line bounding boxes
+ * hitting different SPI transfer passes.
+ */
+static void needle_draw_cb(lv_event_t *e)
+{
+    lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(e);
+    lv_obj_t *obj = lv_event_get_target(e);
+
+    lv_area_t obj_coords;
+    lv_obj_get_coords(obj, &obj_coords);
+
+    /* Needle pivot = gauge centre (adjusted for container padding) */
+    int cx = (obj_coords.x1 + obj_coords.x2) / 2;
+    int cy = (obj_coords.y1 + obj_coords.y2) / 2;
+
+    lv_draw_line_dsc_t dsc;
+    lv_draw_line_dsc_init(&dsc);
+    dsc.color = get_needle_color();
+    dsc.width = 8;
+    dsc.round_start = 1;
+    dsc.round_end   = 1;
+    dsc.opa = LV_OPA_COVER;
+
+    lv_point_t pts[2];
+    pts[0].x = cx;
+    pts[0].y = cy;
+    pts[1].x = cx + (int)(cosf(needle_angle_rad) * NEEDLE_LENGTH);
+    pts[1].y = cy + (int)(sinf(needle_angle_rad) * NEEDLE_LENGTH);
+
+    lv_draw_line(draw_ctx, &dsc, &pts[0], &pts[1]);
+}
+
+/**
+ * @brief Update the needle position (recalc angle, invalidate the single object)
  */
 static void update_needle(void)
 {
-    if (!needle) return;
-    
+    if (!needle_obj) return;
+
     float angle_deg = psi_to_angle(current_boost_psi);
-    float angle_rad = angle_deg * M_PI / 180.0f;
-    
-    int center_x = GAUGE_CENTER_X - TICK_OFFSET;
-    int center_y = GAUGE_CENTER_Y - TICK_OFFSET;
-    
-    needle_points[0].x = center_x;
-    needle_points[0].y = center_y;
-    needle_points[1].x = center_x + cosf(angle_rad) * NEEDLE_LENGTH;
-    needle_points[1].y = center_y + sinf(angle_rad) * NEEDLE_LENGTH;
-    
-    lv_line_set_points(needle, needle_points, 2);
-    lv_obj_set_style_line_color(needle, get_needle_color(), 0);
+    needle_angle_rad = angle_deg * (float)M_PI / 180.0f;
+
+    /* Single invalidation — old + new needle drawn in same buffer pass */
+    lv_obj_invalidate(needle_obj);
 }
 
 /**
@@ -323,37 +355,44 @@ static void draw_gauge_face(void)
 }
 
 /**
- * @brief Create the needle and center cap
+ * @brief Create the needle (custom draw object) and center cap
  */
 static void create_needle(void)
 {
-    // Create needle
-    needle = lv_line_create(gauge_container);
-    lv_obj_set_style_line_width(needle, 8, 0);
-    lv_obj_set_style_line_rounded(needle, true, 0);
+    /* Needle: a transparent square centred on the gauge that draws the
+       needle line via a draw callback.  Using one object keeps the old
+       and new needle in a single dirty region, preventing tearing. */
+    needle_obj = lv_obj_create(gauge_container);
+    lv_obj_set_size(needle_obj, NEEDLE_LENGTH * 2 + 20, NEEDLE_LENGTH * 2 + 20);
+    lv_obj_center(needle_obj);
+    lv_obj_set_style_bg_opa(needle_obj, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(needle_obj, 0, 0);
+    lv_obj_set_style_pad_all(needle_obj, 0, 0);
+    lv_obj_clear_flag(needle_obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(needle_obj, needle_draw_cb, LV_EVENT_DRAW_MAIN_END, NULL);
     update_needle();
     
     // Create center cap (raised button appearance)
-    lv_obj_t *center = lv_obj_create(gauge_container);
-    lv_obj_set_size(center, CENTER_DOT_SIZE, CENTER_DOT_SIZE);
-    lv_obj_set_style_radius(center, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_border_width(center, 0, 0);
+    center_cap = lv_obj_create(gauge_container);
+    lv_obj_set_size(center_cap, CENTER_DOT_SIZE, CENTER_DOT_SIZE);
+    lv_obj_set_style_radius(center_cap, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_width(center_cap, 0, 0);
     
     // Gradient effect - dark grey to black
-    lv_obj_set_style_bg_color(center, lv_color_make(60, 60, 60), 0);
-    lv_obj_set_style_bg_grad_color(center, lv_color_make(0, 0, 0), 0);
-    lv_obj_set_style_bg_grad_dir(center, LV_GRAD_DIR_HOR, 0);
+    lv_obj_set_style_bg_color(center_cap, lv_color_make(60, 60, 60), 0);
+    lv_obj_set_style_bg_grad_color(center_cap, lv_color_make(0, 0, 0), 0);
+    lv_obj_set_style_bg_grad_dir(center_cap, LV_GRAD_DIR_HOR, 0);
     
     // Subtle highlight shadow
-    lv_obj_set_style_shadow_width(center, 10, 0);
-    lv_obj_set_style_shadow_opa(center, LV_OPA_30, 0);
-    lv_obj_set_style_shadow_color(center, get_accent_color(night_mode), 0);
-    lv_obj_set_style_shadow_ofs_x(center, -3, 0);
-    lv_obj_set_style_shadow_ofs_y(center, -3, 0);
+    lv_obj_set_style_shadow_width(center_cap, 10, 0);
+    lv_obj_set_style_shadow_opa(center_cap, LV_OPA_30, 0);
+    lv_obj_set_style_shadow_color(center_cap, get_accent_color(night_mode), 0);
+    lv_obj_set_style_shadow_ofs_x(center_cap, -3, 0);
+    lv_obj_set_style_shadow_ofs_y(center_cap, -3, 0);
     
-    lv_obj_align(center, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(center_cap, LV_ALIGN_CENTER, 0, 0);
     
-    ESP_LOGI(TAG, "Needle and center cap created");
+    ESP_LOGI(TAG, "Needle (draw-cb) and center cap created");
 }
 
 void boost_init(void)
@@ -422,7 +461,8 @@ void boost_cleanup(void)
     if (gauge_container) {
         lv_obj_del(gauge_container);
         gauge_container = NULL;
-        needle = NULL;
+        needle_obj = NULL;
+        center_cap = NULL;
         units_label = NULL;
     }
     

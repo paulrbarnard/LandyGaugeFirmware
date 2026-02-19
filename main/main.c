@@ -859,7 +859,12 @@ void app_main(void)
         }
         
         // Read MAP sensor and update boost gauge (only when boost gauge is active)
+        // Rate-limited to ~20 FPS to reduce needle tearing
         if (current_gauge == GAUGE_BOOST && expansion_board_detected()) {
+            static uint32_t last_boost_redraw_ms = 0;
+            uint32_t boost_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((boost_now - last_boost_redraw_ms) < 50) goto skip_boost;  // ~20 FPS
+
             // Configure ADC for fast MAP reads on first use
             if (!map_adc_configured) {
                 ads1115_set_gain(ADS1115_PGA_2048);    // ±2.048V for 0-2V divider output
@@ -893,7 +898,9 @@ void app_main(void)
                     ESP_LOGE("MAP", "ADC read failed: %s", esp_err_to_name(adc_ret));
                 }
             }
+            last_boost_redraw_ms = boost_now;
         }
+        skip_boost:
 
         // Read compass heading and update compass gauge (only when active)
         if (current_gauge == GAUGE_COMPASS && expansion_board_detected()) {
@@ -904,14 +911,20 @@ void app_main(void)
         }
 
         // Read EGT and update gauge (only when active)
+        // Rate-limited to ~20 FPS to reduce needle tearing
         if (current_gauge == GAUGE_EGT && mcp9600_is_ready()) {
-            float egt_temp = 0.0f;
-            if (mcp9600_read_temperature(&egt_temp) == ESP_OK) {
-                static int egt_log_counter = 0;
-                if ((egt_log_counter++ % 50) == 0) {
-                    ESP_LOGI("EGT", "Temp=%.1f°C", egt_temp);
+            static uint32_t last_egt_redraw_ms = 0;
+            uint32_t egt_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((egt_now - last_egt_redraw_ms) >= 50) {  // ~20 FPS
+                float egt_temp = 0.0f;
+                if (mcp9600_read_temperature(&egt_temp) == ESP_OK) {
+                    static int egt_log_counter = 0;
+                    if ((egt_log_counter++ % 50) == 0) {
+                        ESP_LOGI("EGT", "Temp=%.1f°C", egt_temp);
+                    }
+                    egt_set_value(egt_temp);
                 }
-                egt_set_value(egt_temp);
+                last_egt_redraw_ms = egt_now;
             }
         }
 
