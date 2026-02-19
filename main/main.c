@@ -108,6 +108,7 @@ static bool map_adc_configured = false;  // Track if PGA/DR set for MAP reading
 // Ignition state tracking
 static bool ignition_on = true;        // Assume ON at boot (display starts active)
 static bool system_sleeping = false;   // True when in low-power standby mode
+#define FORCE_IGNITION_ON  0           // TEMP: set to 1 to bypass ignition detection
 
 // Forward declarations
 void switch_gauge(gauge_type_t new_gauge);
@@ -742,7 +743,7 @@ void app_main(void)
     ESP_LOGI("MAIN", "Button input active on GPIO%d", CONFIG_BUTTON_NEXT_GPIO);
 
     // Check initial ignition state — if ignition is OFF at boot, go straight to standby
-    if (exbd_has_io()) {
+    if (!FORCE_IGNITION_ON && exbd_has_io()) {
         ignition_on = exbd_get_input(EXBD_INPUT_IGNITION);
         if (!ignition_on) {
             ESP_LOGW("MAIN", "Ignition OFF at boot — entering standby immediately");
@@ -757,7 +758,7 @@ void app_main(void)
     while (1) {
         // *** Ignition power management ***
         // Check ignition state from expansion board (IO1, active high after IPOL)
-        if (exbd_has_io()) {
+        if (!FORCE_IGNITION_ON && exbd_has_io()) {
             bool ign_now = exbd_get_input(EXBD_INPUT_IGNITION);
             
             if (ign_now && !ignition_on) {
