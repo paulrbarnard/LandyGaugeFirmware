@@ -424,7 +424,11 @@ static int QSPI_Init(void) {
       .intr_type = GPIO_INTR_POSEDGE,
   };
   ESP_ERROR_CHECK(gpio_config(&te_io_conf));
-  ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_IRAM));
+  // gpio_install_isr_service may already be installed by touch driver — tolerate that
+  esp_err_t isr_err = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+  if (isr_err != ESP_OK && isr_err != ESP_ERR_INVALID_STATE) {
+      ESP_ERROR_CHECK(isr_err);  // Only fail on real errors
+  }
   ESP_ERROR_CHECK(gpio_isr_handler_add(ESP_PANEL_LCD_SPI_IO_TE, te_isr_handler, NULL));
   te_enabled = true;
   ESP_LOGI(TAG_LCD, "TE pin GPIO %d configured – vsync sync enabled", ESP_PANEL_LCD_SPI_IO_TE);

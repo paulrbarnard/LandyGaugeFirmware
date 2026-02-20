@@ -113,28 +113,19 @@ void LVGL_Init(void)
     ESP_LOGI(TAG_LVGL, "Initialize LVGL library");
     lv_init();
     
-    // Double buffer in PSRAM — LVGL renders into one while SPI DMA sends the other.
-    // PSRAM is Octal @ 80 MHz with DMA support on this board.
-    size_t buf_bytes = LVGL_BUF_LEN * sizeof(lv_color_t);
-    lv_color_t *buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA);
-    lv_color_t *buf2 = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA);
-    if (!buf1 || !buf2) {
-        // Fall back to single internal-DMA buffer if PSRAM alloc fails
-        ESP_LOGW(TAG_LVGL, "PSRAM double-buffer alloc failed, falling back to single internal buffer");
-        if (buf1) free(buf1);
-        if (buf2) free(buf2);
-        buf2 = NULL;
-        buf_bytes = EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 10) * sizeof(lv_color_t);
-        buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-        if (!buf1) {
-            buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM);
-        }
+    // Single buffer in internal DMA-capable RAM.
+    // SPI master DMA on this board cannot transmit from PSRAM (tx_color fails),
+    // so we must keep the LVGL draw buffer in internal SRAM.
+    // TE-sync (vsync wait) handles tearing elimination instead of double-buffering.
+    lv_color_t *buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!buf1) {
+        ESP_LOGE(TAG_LVGL, "Failed to allocate internal DMA buffer, falling back to PSRAM");
+        buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
     }
     assert(buf1);
-    ESP_LOGI(TAG_LVGL, "LVGL buffer: %d bytes x %s in %s",
-             (int)buf_bytes, buf2 ? "2 (double)" : "1 (single)",
-             buf2 ? "PSRAM" : "internal");
-    lv_disp_draw_buf_init(&disp_buf, buf1, buf2, buf2 ? LVGL_BUF_LEN : (buf_bytes / sizeof(lv_color_t)));
+    ESP_LOGI(TAG_LVGL, "LVGL buffer: %d bytes (single) in internal DMA RAM",
+             (int)(LVGL_BUF_LEN * sizeof(lv_color_t)));
+    lv_disp_draw_buf_init(&disp_buf, buf1, NULL, LVGL_BUF_LEN);  // Single buffer + TE sync
 
     ESP_LOGI(TAG_LVGL, "Register display driver to LVGL");
     lv_disp_drv_init(&disp_drv);
