@@ -159,11 +159,11 @@ static void draw_gauge_face(void)
         lv_obj_set_style_border_color(gauge_container, COLOR_BACKGROUND, 0);
         
         lv_obj_move_background(gauge_container);
-        ESP_LOGI(TAG, "gauge_container created and centered");
+        ESP_LOGD(TAG, "gauge_container created and centered");
     } else {
         // Clean existing children before redrawing
         lv_obj_clean(gauge_container);
-        ESP_LOGI(TAG, "gauge_container children cleaned for redraw");
+        ESP_LOGD(TAG, "gauge_container children cleaned for redraw");
     }
     
     // Create the roof image centered on the gauge
@@ -176,7 +176,7 @@ static void draw_gauge_face(void)
     }
     lv_obj_align(roof_image, LV_ALIGN_CENTER, 0, 0);
     
-    ESP_LOGI(TAG, "roof image created and centered (%s mode)", night_mode ? "night" : "day");
+    ESP_LOGD(TAG, "roof image created and centered (%s mode)", night_mode ? "night" : "day");
     
     // Get the accent color for pressure text
     lv_color_t text_color = get_accent_color(night_mode);
@@ -298,21 +298,21 @@ static void draw_gauge_face(void)
     update_all_pressure_labels();
     update_units_label();
     
-    ESP_LOGI(TAG, "Pressure labels created");
+    ESP_LOGD(TAG, "Pressure labels created");
     
     // Create recessed shadow effects (same as clock)
     create_gauge_shadows(gauge_container, night_mode);
-    ESP_LOGI(TAG, "Shadow effects created");
+    // ESP_LOGD(TAG, "Shadow effects created");
 }
 
 void tire_pressure_init(void)
 {
-    ESP_LOGI(TAG, "Initializing tire pressure gauge");
+    ESP_LOGD(TAG, "Initializing tire pressure gauge");
     
     // Draw the gauge face with image
     draw_gauge_face();
     
-    ESP_LOGI(TAG, "Tire pressure gauge initialized");
+    ESP_LOGD(TAG, "Tire pressure gauge initialized");
 }
 
 void tire_pressure_set_night_mode(bool is_night_mode)
@@ -322,7 +322,7 @@ void tire_pressure_set_night_mode(bool is_night_mode)
     }
     
     night_mode = is_night_mode;
-    ESP_LOGI(TAG, "Setting %s mode", night_mode ? "night" : "day");
+    ESP_LOGD(TAG, "Setting %s mode", night_mode ? "night" : "day");
     
     // Redraw gauge face to update shadow colors
     draw_gauge_face();
@@ -341,7 +341,7 @@ void tire_pressure_set_visible(bool visible)
 
 void tire_pressure_cleanup(void)
 {
-    ESP_LOGI(TAG, "Cleaning up tire pressure gauge");
+    ESP_LOGD(TAG, "Cleaning up tire pressure gauge");
     
     if (gauge_container) {
         lv_obj_del(gauge_container);
@@ -355,7 +355,7 @@ void tire_pressure_cleanup(void)
         units_label = NULL;
     }
     
-    ESP_LOGI(TAG, "Tire pressure gauge cleanup complete");
+    // ESP_LOGD(TAG, "Tire pressure gauge cleanup complete");
 }
 
 void tire_pressure_set_value(int wheel, float pressure_psi)
@@ -393,7 +393,7 @@ void tire_pressure_toggle_units(void)
     tpms_mode = (tpms_mode + 1) % TPMS_MODE_COUNT;
     update_units_label();
     update_all_pressure_labels();
-    ESP_LOGI(TAG, "Units toggled to %s", tpms_mode_labels[tpms_mode]);
+    ESP_LOGD(TAG, "Units toggled to %s", tpms_mode_labels[tpms_mode]);
 
     /* Persist to NVS */
     extern void settings_save_tpms_mode(uint8_t);
@@ -410,7 +410,7 @@ void tire_pressure_set_units_bar(bool use_bar)
         update_units_label();
         update_all_pressure_labels();
     }
-    ESP_LOGI(TAG, "Units set to %s", tpms_mode_labels[tpms_mode]);
+    ESP_LOGD(TAG, "Units set to %s", tpms_mode_labels[tpms_mode]);
 }
 
 void tire_pressure_set_mode(uint8_t mode)
@@ -422,5 +422,5 @@ void tire_pressure_set_mode(uint8_t mode)
         update_units_label();
         update_all_pressure_labels();
     }
-    ESP_LOGI(TAG, "Mode set to %s", tpms_mode_labels[tpms_mode]);
+    ESP_LOGD(TAG, "Mode set to %s", tpms_mode_labels[tpms_mode]);
 }

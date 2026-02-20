@@ -331,7 +331,7 @@ static void draw_horizon_line_cb(lv_event_t *e)
 }
 
 void tilt_init(void) {
-    ESP_LOGI(TAG, "Initializing tilt gauge");
+    ESP_LOGD(TAG, "Initializing tilt gauge");
 
     // Create the container for the tilt gauge
     tilt_gauge = lv_obj_create(lv_scr_act());
@@ -393,7 +393,7 @@ void tilt_init(void) {
     // Create the shadow overlay effects (same as other gauges)
     create_gauge_shadows(tilt_gauge, night_mode);
     
-    ESP_LOGI(TAG, "Tilt gauge initialized with static image/scales and rotating horizon line");
+    ESP_LOGD(TAG, "Tilt gauge initialized with static image/scales and rotating horizon line");
 }
 
 void tilt_set_visible(bool visible) {
@@ -528,13 +528,13 @@ void tilt_set_night_mode(bool night) {
             create_gauge_shadows(tilt_gauge, night_mode);
         }
         
-        ESP_LOGI(TAG, "Tilt gauge switched to %s mode", night_mode ? "night" : "day");
+        ESP_LOGD(TAG, "Tilt gauge switched to %s mode", night_mode ? "night" : "day");
     }
 }
 
 void tilt_cleanup(void)
 {
-    ESP_LOGI(TAG, "Cleaning up tilt gauge");
+    ESP_LOGD(TAG, "Cleaning up tilt gauge");
 
     /* Stop any active warning audio */
     if (current_tilt_audio_level != WARNING_NONE) {
@@ -552,5 +552,5 @@ void tilt_cleanup(void)
         right_scale_obj = NULL;
     }
 
-    ESP_LOGI(TAG, "Tilt gauge cleanup complete");
+    // ESP_LOGD(TAG, "Tilt gauge cleanup complete");
 }

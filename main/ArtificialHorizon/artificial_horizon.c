@@ -418,7 +418,7 @@ static void draw_center_marker_cb(lv_event_t *e)
 
 void artificial_horizon_init(void)
 {
-    ESP_LOGI(TAG, "Initializing artificial horizon");
+    ESP_LOGD(TAG, "Initializing artificial horizon");
     
     // Initialize warning beep system
     warning_beep_init();
@@ -485,7 +485,7 @@ void artificial_horizon_init(void)
     // Create shadow effects on top (light leak effect from side-lit gauge)
     //create_gauge_shadows(horizon_container, night_mode);
     
-    ESP_LOGI(TAG, "Artificial horizon initialized");
+    ESP_LOGD(TAG, "Artificial horizon initialized");
 }
 
 void artificial_horizon_update(float pitch, float roll)
@@ -660,7 +660,7 @@ void artificial_horizon_set_visible(bool visible)
 
 void artificial_horizon_cleanup(void)
 {
-    ESP_LOGI(TAG, "Cleaning up artificial horizon");
+    ESP_LOGD(TAG, "Cleaning up artificial horizon");
     
     // Stop warning beeps
     warning_beep_stop();
@@ -686,5 +686,5 @@ void artificial_horizon_cleanup(void)
     pitch_warning_level = WARNING_NONE;
     roll_warning_level = WARNING_NONE;
     
-    ESP_LOGI(TAG, "Artificial horizon cleaned up");
+    // ESP_LOGD(TAG, "Artificial horizon cleaned up");
 }

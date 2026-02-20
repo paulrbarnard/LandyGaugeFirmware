@@ -295,7 +295,7 @@ void ST77916_FillScreen(uint16_t color) {
   for (int y = 0; y < EXAMPLE_LCD_HEIGHT; ++y) {
     esp_lcd_panel_draw_bitmap(panel_handle, 0, y, EXAMPLE_LCD_WIDTH, y + 1, line_buf);
   }
-  ESP_LOGI(TAG_LCD, "ST77916 FillScreen");
+  // ESP_LOGD(TAG_LCD, "ST77916 FillScreen");
 }
 
 
@@ -372,8 +372,8 @@ static int QSPI_Init(void) {
   lcd_cmd |= LCD_OPCODE_READ_CMD << 24;
   ret = esp_lcd_panel_io_rx_param(io_handle, lcd_cmd, register_data, param_size);
   if (ret == ESP_OK) {
-    ESP_LOGI(TAG_LCD, "Register 0x04 data: %02x %02x %02x %02x", 
-             register_data[0], register_data[1], register_data[2], register_data[3]);
+    // ESP_LOGD(TAG_LCD, "Register 0x04 data: %02x %02x %02x %02x", 
+    //          register_data[0], register_data[1], register_data[2], register_data[3]);
   } else {
     ESP_LOGW(TAG_LCD, "Failed to read register 0x04, error code: %d", ret);
   }
@@ -390,11 +390,11 @@ static int QSPI_Init(void) {
 
   // Check register values and configure accordingly
   if (register_data[0] == 0x00 && register_data[1] == 0x7F && register_data[2] == 0x7F && register_data[3] == 0x7F) {
-    ESP_LOGI(TAG_LCD, "Vendor-specific initialization for case 1");
+    ESP_LOGD(TAG_LCD, "Vendor-specific initialization for case 1");
   } else if (register_data[0] == 0x00 && register_data[1] == 0x02 && register_data[2] == 0x7F && register_data[3] == 0x7F) {
     vendor_config.init_cmds = vendor_specific_init_new;
     vendor_config.init_cmds_size = sizeof(vendor_specific_init_new) / sizeof(st77916_lcd_init_cmd_t);
-    ESP_LOGI(TAG_LCD, "Vendor-specific initialization for case 2");
+    ESP_LOGD(TAG_LCD, "Vendor-specific initialization for case 2");
   }
 
   esp_lcd_panel_dev_config_t panel_config = {
@@ -422,7 +422,7 @@ static int QSPI_Init(void) {
       te_cmd |= LCD_OPCODE_WRITE_CMD << 24;
       uint8_t te_param = 0x00;  // 0x00 = V-Blank only
       esp_lcd_panel_io_tx_param(io_handle, te_cmd, &te_param, 1);
-      ESP_LOGI(TAG_LCD, "TEON (0x35) command sent – TE output enabled on display");
+      ESP_LOGD(TAG_LCD, "TEON (0x35) command sent – TE output enabled on display");
   }
 
   // Configure GPIO 18 as input with rising-edge interrupt

@@ -206,7 +206,7 @@ bool lvgl_check_and_refresh(void)
         // Invalidate the entire screen to force redraw
         lv_obj_invalidate(lv_scr_act());
         
-        ESP_LOGI(TAG_LVGL, "Periodic display refresh (every %d sec)", PERIODIC_REFRESH_INTERVAL_MS / 1000);
+        // ESP_LOGD(TAG_LVGL, "Periodic display refresh (every %d sec)", PERIODIC_REFRESH_INTERVAL_MS / 1000);
         return true;
     }
     

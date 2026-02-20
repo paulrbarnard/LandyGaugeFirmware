@@ -11,7 +11,6 @@
 #include "esp_log.h"
 #include "PCM5101.h"
 #include <math.h>
-#include <dirent.h>
 
 static const char *TAG = "WARNING_BEEP";
 
@@ -117,7 +116,7 @@ static void warning_task(void *pvParameters)
     
     while (warning_active) {
         // Play a short beep first
-        ESP_LOGI(TAG, "Playing warning beep");
+        ESP_LOGD(TAG, "Playing warning beep");
         play_tone(BEEP_SHORT);
         
         // Small delay between beep and MP3
@@ -130,10 +129,10 @@ static void warning_task(void *pvParameters)
         
         // Play the appropriate MP3 based on warning level
         if (current_warning_level == WARNING_LEVEL_RED) {
-            ESP_LOGI(TAG, "Playing DangerRoll.mp3");
+            ESP_LOGD(TAG, "Playing DangerRoll.mp3");
             Play_Music("/sdcard", "DANGE~24.MP3");
         } else if (current_warning_level == WARNING_LEVEL_YELLOW) {
-            ESP_LOGI(TAG, "Playing WarningRoll.mp3");
+            ESP_LOGD(TAG, "Playing WarningRoll.mp3");
             Play_Music("/sdcard", "WARNI~26.MP3");
         }
         
@@ -150,7 +149,7 @@ static void warning_task(void *pvParameters)
         // Check if we should stop
         if (pending_stop) {
             pending_stop = false;
-            ESP_LOGI(TAG, "Stopping roll warning after MP3 completion");
+            ESP_LOGD(TAG, "Stopping roll warning after MP3 completion");
             break;
         }
         
@@ -158,7 +157,7 @@ static void warning_task(void *pvParameters)
         if (pending_warning_level != WARNING_LEVEL_NONE) {
             current_warning_level = pending_warning_level;
             pending_warning_level = WARNING_LEVEL_NONE;
-            ESP_LOGI(TAG, "Switching to pending warning level");
+            ESP_LOGD(TAG, "Switching to pending warning level");
             continue;  // Play the new level immediately
         }
         
@@ -175,7 +174,7 @@ static void warning_task(void *pvParameters)
             if (pending_warning_level != WARNING_LEVEL_NONE) {
                 current_warning_level = pending_warning_level;
                 pending_warning_level = WARNING_LEVEL_NONE;
-                ESP_LOGI(TAG, "Switching to pending warning level during wait");
+                ESP_LOGD(TAG, "Switching to pending warning level during wait");
                 break;
             }
         }
@@ -193,19 +192,6 @@ void warning_beep_init(void)
     
     // Generate the tone buffer
     generate_tone_buffer();
-    
-    // List files in /sdcard for debugging
-    DIR *dir = opendir("/sdcard");
-    if (dir) {
-        ESP_LOGI(TAG, "Files on SD card:");
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL) {
-            ESP_LOGI(TAG, "  - %s", entry->d_name);
-        }
-        closedir(dir);
-    } else {
-        ESP_LOGE(TAG, "Failed to open /sdcard directory");
-    }
     
     ESP_LOGI(TAG, "Warning beep system initialized (I2S tone + MP3 playback)");
 }
@@ -236,12 +222,12 @@ void warning_beep_start(warning_level_type_t level)
             // Request stop after MP3 finishes
             pending_stop = true;
             pending_warning_level = WARNING_LEVEL_NONE;
-            ESP_LOGI(TAG, "MP3 playing, will stop after completion");
+            ESP_LOGD(TAG, "MP3 playing, will stop after completion");
         } else {
             // Queue the new warning level
             pending_stop = false;
             pending_warning_level = level;
-            ESP_LOGI(TAG, "MP3 playing, queuing level change to %s", 
+            ESP_LOGD(TAG, "MP3 playing, queuing level change to %s", 
                      level == WARNING_LEVEL_RED ? "DANGER" : "WARNING");
         }
         return;
@@ -251,7 +237,7 @@ void warning_beep_start(warning_level_type_t level)
     warning_beep_stop();
     
     if (level == WARNING_LEVEL_NONE) {
-        ESP_LOGI(TAG, "No warning to start");
+        // ESP_LOGD(TAG, "No warning to start");
         return;
     }
     

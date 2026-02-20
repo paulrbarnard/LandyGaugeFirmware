@@ -40,7 +40,7 @@ static esp_err_t bsp_i2s_reconfig_clk(uint32_t rate, uint32_t bits_cfg, i2s_slot
 }
 
 static esp_err_t audio_mute_function(AUDIO_PLAYER_MUTE_SETTING setting) {                                                       // audio mute function
-    ESP_LOGI(TAG, "mute setting %d", setting); 
+    // ESP_LOGD(TAG, "mute setting %d", setting); 
     return ESP_OK; 
 }
 
@@ -68,7 +68,7 @@ static audio_player_callback_event_t event;
 
 static void audio_player_callback(audio_player_cb_ctx_t *ctx) {
     if (ctx->audio_event == AUDIO_PLAYER_CALLBACK_EVENT_IDLE) {
-        ESP_LOGI(TAG, "Playback finished");
+        ESP_LOGD(TAG, "Playback finished");
         Music_Next_Flag = 1;
     }
     if (ctx->audio_event == expected_event) {
@@ -200,5 +200,5 @@ void Volume_adjustment(uint8_t Vol) {
         printf("Audio : The volume value is incorrect. Please enter 0 to 21\r\n");
     else  
         Volume = Vol;
-    ESP_LOGI(TAG, "Volume set to %d", Volume);
+    ESP_LOGD(TAG, "Volume set to %d", Volume);
 }

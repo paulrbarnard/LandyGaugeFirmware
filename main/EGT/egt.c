@@ -228,10 +228,10 @@ static void draw_gauge_face(void)
         lv_obj_set_style_border_color(gauge_container, COLOR_BACKGROUND, 0);
 
         lv_obj_move_background(gauge_container);
-        ESP_LOGI(TAG, "gauge_container created");
+        ESP_LOGD(TAG, "gauge_container created");
     } else {
         lv_obj_clean(gauge_container);
-        ESP_LOGI(TAG, "gauge_container cleaned for redraw");
+        ESP_LOGD(TAG, "gauge_container cleaned for redraw");
     }
 
     int center_x = GAUGE_CENTER_X;
@@ -351,7 +351,7 @@ static void draw_gauge_face(void)
     /* Shadow overlay */
     create_gauge_shadows(gauge_container, night_mode);
 
-    ESP_LOGI(TAG, "Gauge face drawn (%s mode, %s)",
+    ESP_LOGD(TAG, "Gauge face drawn (%s mode, %s)",
              night_mode ? "night" : "day",
              use_celsius ? "°C" : "°F");
 }
@@ -390,7 +390,7 @@ static void create_needle(void)
     lv_obj_set_style_shadow_ofs_y(center_cap, -3, 0);
     lv_obj_align(center_cap, LV_ALIGN_CENTER, 0, 0);
 
-    ESP_LOGI(TAG, "Needle (draw-cb) and center cap created");
+    ESP_LOGD(TAG, "Needle (draw-cb) and center cap created");
 }
 
 /*******************************************************************************
@@ -399,11 +399,11 @@ static void create_needle(void)
 
 void egt_init(void)
 {
-    ESP_LOGI(TAG, "Initializing EGT gauge");
+    ESP_LOGD(TAG, "Initializing EGT gauge");
     current_egt_c = 0.0f;
     draw_gauge_face();
     create_needle();
-    ESP_LOGI(TAG, "EGT gauge initialized");
+    ESP_LOGD(TAG, "EGT gauge initialized");
 }
 
 void egt_set_value(float temp_c)
@@ -429,7 +429,7 @@ void egt_set_night_mode(bool is_night_mode)
 {
     if (night_mode == is_night_mode) return;
     night_mode = is_night_mode;
-    ESP_LOGI(TAG, "Setting %s mode", night_mode ? "night" : "day");
+    ESP_LOGD(TAG, "Setting %s mode", night_mode ? "night" : "day");
     draw_gauge_face();
     create_needle();
 }
@@ -447,7 +447,7 @@ void egt_set_visible(bool visible)
 
 void egt_cleanup(void)
 {
-    ESP_LOGI(TAG, "Cleaning up EGT gauge");
+    ESP_LOGD(TAG, "Cleaning up EGT gauge");
     if (gauge_container) {
         lv_obj_del(gauge_container);
         gauge_container = NULL;
@@ -455,7 +455,7 @@ void egt_cleanup(void)
         center_cap = NULL;
         units_label = NULL;
     }
-    ESP_LOGI(TAG, "EGT gauge cleanup complete");
+    // ESP_LOGD(TAG, "EGT gauge cleanup complete");
 }
 
 void egt_set_units_celsius(bool celsius)
@@ -467,7 +467,7 @@ void egt_set_units_celsius(bool celsius)
         draw_gauge_face();
         create_needle();
     }
-    ESP_LOGI(TAG, "Units set to %s", use_celsius ? "°C" : "°F");
+    ESP_LOGD(TAG, "Units set to %s", use_celsius ? "°C" : "°F");
 }
 
 void egt_toggle_units(void)
@@ -475,7 +475,7 @@ void egt_toggle_units(void)
     use_celsius = !use_celsius;
     draw_gauge_face();
     create_needle();
-    ESP_LOGI(TAG, "Units toggled to %s", use_celsius ? "°C" : "°F");
+    ESP_LOGD(TAG, "Units toggled to %s", use_celsius ? "°C" : "°F");
 
     /* Persist to NVS */
     extern void settings_save_egt_units(bool);

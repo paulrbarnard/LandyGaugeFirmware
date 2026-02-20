@@ -140,7 +140,7 @@ void settings_save_boost_units(bool use_bar)
     nvs_commit(h);
     nvs_close(h);
 
-    ESP_LOGI(TAG, "Boost units saved: %s", use_bar ? "BAR" : "PSI");
+    ESP_LOGD(TAG, "Boost units saved: %s", use_bar ? "BAR" : "PSI");
 }
 
 void settings_save_tpms_units(bool use_bar)
@@ -158,7 +158,7 @@ void settings_save_tpms_mode(uint8_t mode)
     nvs_commit(h);
     nvs_close(h);
 
-    ESP_LOGI(TAG, "TPMS mode saved: %d", mode);
+    ESP_LOGD(TAG, "TPMS mode saved: %d", mode);
 }
 
 void settings_save_egt_units(bool use_celsius)
@@ -170,5 +170,5 @@ void settings_save_egt_units(bool use_celsius)
     nvs_commit(h);
     nvs_close(h);
 
-    ESP_LOGI(TAG, "EGT units saved: %s", use_celsius ? "°C" : "°F");
+    ESP_LOGD(TAG, "EGT units saved: %s", use_celsius ? "°C" : "°F");
 }

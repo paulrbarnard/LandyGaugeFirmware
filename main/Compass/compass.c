@@ -333,7 +333,7 @@ static void update_heading_readout(void)
 
 void compass_init(void)
 {
-    ESP_LOGI(TAG, "Initializing compass gauge");
+    ESP_LOGD(TAG, "Initializing compass gauge");
 
     current_heading = 0.0f;
     tick_point_count = 0;
@@ -359,7 +359,7 @@ void compass_init(void)
 
     update_heading_readout();
 
-    ESP_LOGI(TAG, "Compass gauge initialized");
+    ESP_LOGD(TAG, "Compass gauge initialized");
 }
 
 void compass_set_heading(float heading)
@@ -394,7 +394,7 @@ void compass_set_night_mode(bool is_night_mode)
     if (night_mode == is_night_mode) return;
 
     night_mode = is_night_mode;
-    ESP_LOGI(TAG, "Setting %s mode", night_mode ? "night" : "day");
+    ESP_LOGD(TAG, "Setting %s mode", night_mode ? "night" : "day");
 
     // Rebuild everything with new colors
     if (gauge_container) {
@@ -423,7 +423,7 @@ void compass_set_visible(bool visible)
 
 void compass_cleanup(void)
 {
-    ESP_LOGI(TAG, "Cleaning up compass gauge");
+    ESP_LOGD(TAG, "Cleaning up compass gauge");
 
     // If calibrating, stop it (don't apply incomplete offsets)
     if (lis3mdl_is_calibrating()) {
@@ -445,7 +445,7 @@ void compass_cleanup(void)
         cal_msg_label = NULL;
     }
 
-    ESP_LOGI(TAG, "Compass gauge cleanup complete");
+    // ESP_LOGD(TAG, "Compass gauge cleanup complete");
 }
 
 void compass_toggle_calibration(void)

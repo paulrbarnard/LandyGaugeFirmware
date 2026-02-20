@@ -212,10 +212,10 @@ static void draw_gauge_face(void)
         lv_obj_set_style_border_color(gauge_container, COLOR_BACKGROUND, 0);
         
         lv_obj_move_background(gauge_container);
-        ESP_LOGI(TAG, "gauge_container created");
+        ESP_LOGD(TAG, "gauge_container created");
     } else {
         lv_obj_clean(gauge_container);
-        ESP_LOGI(TAG, "gauge_container cleaned for redraw");
+        ESP_LOGD(TAG, "gauge_container cleaned for redraw");
     }
     
     int center_x = GAUGE_CENTER_X;
@@ -351,7 +351,7 @@ static void draw_gauge_face(void)
     // Create recessed shadow effects (same as clock)
     create_gauge_shadows(gauge_container, night_mode);
     
-    ESP_LOGI(TAG, "Gauge face drawn");
+    ESP_LOGD(TAG, "Gauge face drawn");
 }
 
 /**
@@ -392,19 +392,19 @@ static void create_needle(void)
     
     lv_obj_align(center_cap, LV_ALIGN_CENTER, 0, 0);
     
-    ESP_LOGI(TAG, "Needle (draw-cb) and center cap created");
+    ESP_LOGD(TAG, "Needle (draw-cb) and center cap created");
 }
 
 void boost_init(void)
 {
-    ESP_LOGI(TAG, "Initializing boost gauge");
+    ESP_LOGD(TAG, "Initializing boost gauge");
     
     current_boost_psi = 0.0f;
     
     draw_gauge_face();
     create_needle();
     
-    ESP_LOGI(TAG, "Boost gauge initialized");
+    ESP_LOGD(TAG, "Boost gauge initialized");
 }
 
 /* Minimum change (BAR) before triggering a needle redraw.
@@ -436,7 +436,7 @@ void boost_set_night_mode(bool is_night_mode)
     if (night_mode == is_night_mode) return;
     
     night_mode = is_night_mode;
-    ESP_LOGI(TAG, "Setting %s mode", night_mode ? "night" : "day");
+    ESP_LOGD(TAG, "Setting %s mode", night_mode ? "night" : "day");
     
     // Redraw entire gauge
     draw_gauge_face();
@@ -456,7 +456,7 @@ void boost_set_visible(bool visible)
 
 void boost_cleanup(void)
 {
-    ESP_LOGI(TAG, "Cleaning up boost gauge");
+    ESP_LOGD(TAG, "Cleaning up boost gauge");
     
     if (gauge_container) {
         lv_obj_del(gauge_container);
@@ -466,7 +466,7 @@ void boost_cleanup(void)
         units_label = NULL;
     }
     
-    ESP_LOGI(TAG, "Boost gauge cleanup complete");
+    // ESP_LOGD(TAG, "Boost gauge cleanup complete");
 }
 
 void boost_set_units_bar(bool use_bar)
@@ -479,7 +479,7 @@ void boost_set_units_bar(bool use_bar)
         draw_gauge_face();
         create_needle();
     }
-    ESP_LOGI(TAG, "Units set to %s", use_bar_units ? "bar" : "psi");
+    ESP_LOGD(TAG, "Units set to %s", use_bar_units ? "bar" : "psi");
 }
 
 void boost_toggle_units(void)
@@ -488,7 +488,7 @@ void boost_toggle_units(void)
     /* Redraw entire gauge with correct scale */
     draw_gauge_face();
     create_needle();
-    ESP_LOGI(TAG, "Units toggled to %s", use_bar_units ? "bar" : "psi");
+    ESP_LOGD(TAG, "Units toggled to %s", use_bar_units ? "bar" : "psi");
 
     /* Persist to NVS */
     extern void settings_save_boost_units(bool);

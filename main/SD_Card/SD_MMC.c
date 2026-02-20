@@ -12,7 +12,7 @@ uint32_t SDCard_Size = 0;
 
 esp_err_t s_example_write_file(const char *path, char *data)
 {
-    ESP_LOGI(SD_TAG, "Opening file %s", path);
+    // ESP_LOGD(SD_TAG, "Opening file %s", path);
     FILE *f = fopen(path, "w");
     if (f == NULL) {
         ESP_LOGE(SD_TAG, "Failed to open file for writing");
@@ -20,14 +20,14 @@ esp_err_t s_example_write_file(const char *path, char *data)
     }
     fprintf(f, data);
     fclose(f);
-    ESP_LOGI(SD_TAG, "File written");
+    // ESP_LOGD(SD_TAG, "File written");
 
     return ESP_OK;
 }
 
 esp_err_t s_example_read_file(const char *path)
 {
-    ESP_LOGI(SD_TAG, "Reading file %s", path);
+    // ESP_LOGD(SD_TAG, "Reading file %s", path);
     FILE *f = fopen(path, "r");
     if (f == NULL) {
         ESP_LOGE(SD_TAG, "Failed to open file for reading");
@@ -42,7 +42,7 @@ esp_err_t s_example_read_file(const char *path)
     if (pos) {
         *pos = '\0';
     }
-    ESP_LOGI(SD_TAG, "Read from file: '%s'", line);
+    // ESP_LOGD(SD_TAG, "Read from file: '%s'", line);
 
     return ESP_OK;
 }
@@ -106,22 +106,6 @@ void SD_Init(void)
     }
     ESP_LOGI(SD_TAG, "Filesystem mounted");
 
-    // List files on SD card for debugging
-    DIR *dir = opendir(MOUNT_POINT);
-    if (dir) {
-        ESP_LOGI(SD_TAG, "=== Files on SD card ===");
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL) {
-            ESP_LOGI(SD_TAG, "  [%s] %s", 
-                     entry->d_type == DT_DIR ? "DIR" : "FILE", 
-                     entry->d_name);
-        }
-        closedir(dir);
-        ESP_LOGI(SD_TAG, "========================");
-    } else {
-        ESP_LOGE(SD_TAG, "Failed to list SD card directory");
-    }
-
     // Card has been initialized, print its properties
     sdmmc_card_print_info(stdout, card);
     SDCard_Size = ((uint64_t) card->csd.capacity) * card->csd.sector_size / (1024 * 1024);
@@ -140,7 +124,7 @@ void Flash_Searching(void)
 
 
 FILE* Open_File(const char *file_path) {
-    ESP_LOGI(SD_TAG, "Attempting to open file: %s", file_path);
+    // ESP_LOGD(SD_TAG, "Attempting to open file: %s", file_path);
     FILE *fp = fopen(file_path, "rb"); // Open the MP3 file in binary mode
     if (fp == NULL) {
         ESP_LOGE(SD_TAG, "Failed to open file %s. Error: %s", file_path, strerror(errno));
@@ -192,7 +176,7 @@ uint16_t Folder_retrieval(const char* directory, const char* fileExtension, char
     closedir(dir);  
 
     if (fileCount > 0) {
-        ESP_LOGI(SD_TAG, "Retrieved %d files with extension '%s'", fileCount, fileExtension);  
+        ESP_LOGD(SD_TAG, "Retrieved %d files with extension '%s'", fileCount, fileExtension);  
     } else {
         ESP_LOGW(SD_TAG, "No files with extension '%s' found in directory: %s", fileExtension, directory); 
     }

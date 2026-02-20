@@ -331,27 +331,27 @@ static void handle_select_action(void)
 {
     switch (current_gauge) {
         case GAUGE_COMPASS:
-            ESP_LOGI("MAIN", "Select: toggle compass calibration");
+            ESP_LOGD("MAIN", "Select: toggle compass calibration");
             compass_toggle_calibration();
             break;
         case GAUGE_BOOST:
-            ESP_LOGI("MAIN", "Select: toggle boost units");
+            ESP_LOGD("MAIN", "Select: toggle boost units");
             boost_toggle_units();
             break;
         case GAUGE_TIRE_PRESSURE:
-            ESP_LOGI("MAIN", "Select: toggle tire pressure units");
+            ESP_LOGD("MAIN", "Select: toggle tire pressure units");
             tire_pressure_toggle_units();
             break;
         case GAUGE_EGT:
-            ESP_LOGI("MAIN", "Select: toggle EGT units");
+            ESP_LOGD("MAIN", "Select: toggle EGT units");
             egt_toggle_units();
             break;
         case GAUGE_COOLING:
-            ESP_LOGI("MAIN", "Select: cooling (long-press for wading)");
+            ESP_LOGD("MAIN", "Select: cooling (long-press for wading)");
             // Wading toggle moved to long-press — single tap does nothing on cooling
             break;
         default:
-            ESP_LOGI("MAIN", "Select action (no action on this gauge)");
+            // ESP_LOGD("MAIN", "Select action (no action on this gauge)");
             break;
     }
 }
@@ -390,7 +390,7 @@ static void process_select_tap(void)
         /* First tap — defer action, wait for possible second tap */
         select_tap_pending = true;
         select_tap_time = now;
-        ESP_LOGI("MAIN", "Select tap — waiting for double-tap...");
+        ESP_LOGD("MAIN", "Select tap — waiting for double-tap...");
     }
 }
 
@@ -405,7 +405,7 @@ static void check_select_tap_timeout(void)
     if ((now - select_tap_time) > DOUBLE_TAP_WINDOW_MS) {
         select_tap_pending = false;
         select_tap_time = 0;
-        ESP_LOGI("MAIN", "Single tap confirmed — executing select action");
+        ESP_LOGD("MAIN", "Single tap confirmed — executing select action");
         handle_select_action();
     }
 }
@@ -452,14 +452,14 @@ static void touch_event_handler(lv_event_t * e)
         /* Debounce: ignore rapid taps (overlay recreation can re-fire events) */
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         if ((now - last_touch_switch_ms) < TOUCH_DEBOUNCE_MS) {
-            ESP_LOGI("MAIN", "Touch debounced (%d,%d) — %lums since last switch",
-                     point.x, point.y, now - last_touch_switch_ms);
+            // ESP_LOGD("MAIN", "Touch debounced (%d,%d) — %lums since last switch",
+            //             point.x, point.y, now - last_touch_switch_ms);
             return;
         }
 
         /* Center zone: route through double-tap detector */
         if (touch_in_center(&point)) {
-            ESP_LOGI("MAIN", "Touch center tap (%d,%d) — select/double-tap", point.x, point.y);
+            ESP_LOGD("MAIN", "Touch center tap (%d,%d) — select/double-tap", point.x, point.y);
             process_select_tap();
             return;
         }
@@ -467,10 +467,10 @@ static void touch_event_handler(lv_event_t * e)
         last_touch_switch_ms = now;
 
         if (point.x < 180) {
-            ESP_LOGI("MAIN", "Touch left (%d,%d) — prev gauge", point.x, point.y);
+            ESP_LOGD("MAIN", "Touch left (%d,%d) — prev gauge", point.x, point.y);
             handle_prev_gauge_input();
         } else {
-            ESP_LOGI("MAIN", "Touch right (%d,%d) — next gauge", point.x, point.y);
+            ESP_LOGD("MAIN", "Touch right (%d,%d) — next gauge", point.x, point.y);
             handle_next_gauge_input();
         }
     } else if (code == LV_EVENT_LONG_PRESSED) {
@@ -482,7 +482,7 @@ static void touch_event_handler(lv_event_t * e)
         }
 
         if (touch_in_center(&point)) {
-            ESP_LOGI("MAIN", "Long press center (%d,%d) — long-press action", point.x, point.y);
+            ESP_LOGD("MAIN", "Long press center (%d,%d) — long-press action", point.x, point.y);
             warning_beep_play(BEEP_SHORT);
             // Cancel any pending single/double tap
             select_tap_pending = false;
@@ -493,7 +493,7 @@ static void touch_event_handler(lv_event_t * e)
                 cooling_toggle_wading();
             }
         } else {
-            ESP_LOGI("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
+            // ESP_LOGD("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
         }
     }
 }
@@ -522,7 +522,7 @@ static void handle_next_gauge_input(void)
     alarm_previous_gauge = GAUGE_COUNT;
     alarm_cleared_time = 0;
     
-    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (next, lockout %dms)", 
+    ESP_LOGD("MAIN", "Input - switching from gauge %d to %d (next, lockout %dms)", 
              current_gauge, next_gauge, AUTO_SWITCH_LOCKOUT_MS);
     switch_gauge(next_gauge);
 }
@@ -551,7 +551,7 @@ static void handle_prev_gauge_input(void)
     alarm_previous_gauge = GAUGE_COUNT;
     alarm_cleared_time = 0;
 
-    ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (prev, lockout %dms)",
+    ESP_LOGD("MAIN", "Input - switching from gauge %d to %d (prev, lockout %dms)",
              current_gauge, prev_gauge, AUTO_SWITCH_LOCKOUT_MS);
     switch_gauge(prev_gauge);
 }
@@ -665,7 +665,7 @@ static void exit_standby_mode(void)
 
 void switch_gauge(gauge_type_t new_gauge)
 {
-    ESP_LOGI("MAIN", "switch_gauge called: current=%d, new=%d, night_mode=%d", 
+    ESP_LOGD("MAIN", "switch_gauge called: current=%d, new=%d, night_mode=%d", 
              current_gauge, new_gauge, test_night_mode);
 
     /* Block switching away from cooling gauge while wading mode is active */
@@ -675,43 +675,43 @@ void switch_gauge(gauge_type_t new_gauge)
     }
     
     if (new_gauge == current_gauge) {
-        ESP_LOGI("MAIN", "Already on gauge %d, ignoring", new_gauge);
+        // ESP_LOGD("MAIN", "Already on gauge %d, ignoring", new_gauge);
         return;
     }
     
     // Hide/cleanup current gauge
     switch (current_gauge) {
         case GAUGE_CLOCK:
-            ESP_LOGI("MAIN", "Cleaning up clock");
+            ESP_LOGD("MAIN", "Cleaning up clock");
             clock_cleanup();
             break;
         case GAUGE_HORIZON:
-            ESP_LOGI("MAIN", "Cleaning up horizon");
+            ESP_LOGD("MAIN", "Cleaning up horizon");
             artificial_horizon_cleanup();
             break;
         case GAUGE_TILT:
-            ESP_LOGI("MAIN", "Cleaning up tilt");
+            ESP_LOGD("MAIN", "Cleaning up tilt");
             tilt_cleanup();
             break;
         case GAUGE_TIRE_PRESSURE:
-            ESP_LOGI("MAIN", "Cleaning up tire pressure");
+            ESP_LOGD("MAIN", "Cleaning up tire pressure");
             tire_pressure_cleanup();
             ble_tpms_set_fast_scan(false);  // Disable fast scan when leaving TPMS gauge
             break;
         case GAUGE_BOOST:
-            ESP_LOGI("MAIN", "Cleaning up boost gauge");
+            ESP_LOGD("MAIN", "Cleaning up boost gauge");
             boost_cleanup();
             break;
         case GAUGE_COMPASS:
-            ESP_LOGI("MAIN", "Cleaning up compass gauge");
+            ESP_LOGD("MAIN", "Cleaning up compass gauge");
             compass_cleanup();
             break;
         case GAUGE_EGT:
-            ESP_LOGI("MAIN", "Cleaning up EGT gauge");
+            ESP_LOGD("MAIN", "Cleaning up EGT gauge");
             egt_cleanup();
             break;
         case GAUGE_COOLING:
-            ESP_LOGI("MAIN", "Cleaning up cooling gauge");
+            ESP_LOGD("MAIN", "Cleaning up cooling gauge");
             cooling_cleanup();
             break;
         default:
@@ -724,49 +724,49 @@ void switch_gauge(gauge_type_t new_gauge)
     lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);  // Pure black background
     lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);
     lv_obj_invalidate(lv_scr_act());
-    ESP_LOGI("MAIN", "Screen cleared");
+    ESP_LOGD("MAIN", "Screen cleared");
     
     // Initialize and show new gauge with current night mode setting
     current_gauge = new_gauge;
     switch (current_gauge) {
         case GAUGE_CLOCK:
-            ESP_LOGI("MAIN", "Initializing clock (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing clock (%s mode)", test_night_mode ? "night" : "day");
             clock_init();
             clock_set_night_mode(test_night_mode);
             break;
         case GAUGE_HORIZON:
-            ESP_LOGI("MAIN", "Initializing horizon (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing horizon (%s mode)", test_night_mode ? "night" : "day");
             artificial_horizon_init();
             artificial_horizon_set_night_mode(test_night_mode);
             break;
         case GAUGE_TILT:
-            ESP_LOGI("MAIN", "Initializing tilt (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing tilt (%s mode)", test_night_mode ? "night" : "day");
             tilt_init();
             tilt_set_night_mode(test_night_mode);
             break;
         case GAUGE_TIRE_PRESSURE:
-            ESP_LOGI("MAIN", "Initializing tire pressure (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing tire pressure (%s mode)", test_night_mode ? "night" : "day");
             tire_pressure_init();
             tire_pressure_set_night_mode(test_night_mode);
             ble_tpms_set_fast_scan(true);  // Enable fast scan when viewing TPMS gauge
             break;
         case GAUGE_BOOST:
-            ESP_LOGI("MAIN", "Initializing boost gauge (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing boost gauge (%s mode)", test_night_mode ? "night" : "day");
             boost_init();
             boost_set_night_mode(test_night_mode);
             break;
         case GAUGE_COMPASS:
-            ESP_LOGI("MAIN", "Initializing compass gauge (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing compass gauge (%s mode)", test_night_mode ? "night" : "day");
             compass_init();
             compass_set_night_mode(test_night_mode);
             break;
         case GAUGE_EGT:
-            ESP_LOGI("MAIN", "Initializing EGT gauge (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing EGT gauge (%s mode)", test_night_mode ? "night" : "day");
             egt_init();
             egt_set_night_mode(test_night_mode);
             break;
         case GAUGE_COOLING:
-            ESP_LOGI("MAIN", "Initializing cooling gauge (%s mode)", test_night_mode ? "night" : "day");
+            ESP_LOGD("MAIN", "Initializing cooling gauge (%s mode)", test_night_mode ? "night" : "day");
             cooling_init();
             cooling_set_night_mode(test_night_mode);
             break;
@@ -777,7 +777,7 @@ void switch_gauge(gauge_type_t new_gauge)
     // Recreate touch overlay on top of the new gauge (if touch available)
     if (touch_available) {
         create_touch_overlay();
-        ESP_LOGI("MAIN", "Touch overlay recreated");
+        // ESP_LOGD("MAIN", "Touch overlay recreated");
     }
     
     ESP_LOGI("MAIN", "Switched to %s (%s mode)", 
@@ -961,13 +961,13 @@ void app_main(void)
         
         // Check for button press (GPIO0 boot button or GPIO43 next)
         if (button_input_pressed()) {
-            ESP_LOGI("MAIN", "Next button pressed - switching gauge");
+            ESP_LOGD("MAIN", "Next button pressed - switching gauge");
             handle_next_gauge_input();
         }
         
         // Check for previous button press (GPIO44)
         if (button_input_prev_pressed()) {
-            ESP_LOGI("MAIN", "Prev button pressed - switching gauge");
+            ESP_LOGD("MAIN", "Prev button pressed - switching gauge");
             handle_prev_gauge_input();
         }
         
@@ -1074,7 +1074,7 @@ void app_main(void)
 
                 static int map_log_counter = 0;
                 if ((map_log_counter++ % 50) == 0) {  // Log every ~0.5s
-                    ESP_LOGI("MAP", "V=%.3f kPa=%.1f BAR=%.2f", voltage, kpa_abs, boost_bar);
+                    ESP_LOGD("MAP", "V=%.3f kPa=%.1f BAR=%.2f", voltage, kpa_abs, boost_bar);
                 }
                 boost_set_value(boost_bar);
             } else {
@@ -1105,7 +1105,7 @@ void app_main(void)
                 if (mcp9600_read_temperature(&egt_temp) == ESP_OK) {
                     static int egt_log_counter = 0;
                     if ((egt_log_counter++ % 50) == 0) {
-                        ESP_LOGI("EGT", "Temp=%.1f°C", egt_temp);
+                        ESP_LOGD("EGT", "Temp=%.1f°C", egt_temp);
                     }
                     egt_set_value(egt_temp);
                 }
@@ -1141,24 +1141,12 @@ void app_main(void)
         if (pending_switch != GAUGE_COUNT) {
             gauge_type_t target = pending_switch;
             pending_switch = GAUGE_COUNT;  // Clear before switching
-            ESP_LOGI("MAIN", "Processing pending auto-switch to gauge %d", target);
+            ESP_LOGD("MAIN", "Processing pending auto-switch to gauge %d", target);
             switch_gauge(target);
         }
         
         // Check for display SPI errors and trigger refresh if needed
         lvgl_check_and_refresh();
-
-        // TE diagnostic: log pulse count every 10 seconds to verify GPIO 18 is toggling
-        {
-            static uint32_t last_te_log_ms = 0;
-            uint32_t now = lv_tick_get();
-            if (now - last_te_log_ms >= 10000) {
-                last_te_log_ms = now;
-                ESP_LOGI("TE", "TE pulse count: %lu (~%lu Hz)",
-                         (unsigned long)lcd_get_te_count(),
-                         (unsigned long)(lcd_get_te_count() / (now / 1000)));
-            }
-        }
         
         // raise the task priority of LVGL and/or reduce the handler period can improve the performance
         vTaskDelay(pdMS_TO_TICKS(10));

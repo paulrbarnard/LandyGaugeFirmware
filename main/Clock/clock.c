@@ -82,13 +82,13 @@ static void draw_clock_face(void)
         lv_obj_set_style_border_color(clock_face, COLOR_BACKGROUND, 0); //
         // lv_obj_set_style_radius(clock_face, LV_RADIUS_CIRCLE, 0);
         lv_obj_move_background(clock_face);
-        ESP_LOGI(TAG, "clock_face created and centered");
+        ESP_LOGD(TAG, "clock_face created and centered");
     }
     else
     {
         // Clean existing children before redrawing (prevents shadow/element accumulation)
         lv_obj_clean(clock_face);
-        ESP_LOGI(TAG, "clock_face children cleaned for redraw");
+        ESP_LOGD(TAG, "clock_face children cleaned for redraw");
     }
 
     // Get true center from container size
@@ -132,7 +132,7 @@ static void draw_clock_face(void)
         lv_obj_set_style_line_width(marker, line_width, 0);
         lv_obj_set_style_line_color(marker, get_accent_color(night_mode), 0);
         lv_obj_set_style_line_rounded(marker, false, 0);
-        ESP_LOGI(TAG, "Tick mark %d created at (%d,%d)->(%d,%d)", i, marker_points[0].x, marker_points[0].y, marker_points[1].x, marker_points[1].y);
+        // ESP_LOGD(TAG, "Tick mark %d created at (%d,%d)->(%d,%d)", i, marker_points[0].x, marker_points[0].y, marker_points[1].x, marker_points[1].y);
         if (i == 0 || i == 3 || i == 6 || i == 9)
         {
             int number_radius = (CLOCK_SIZE / 2) - 60;
@@ -164,7 +164,7 @@ static void draw_clock_face(void)
             lv_obj_align(num_label, LV_ALIGN_CENTER,
                          num_x - center_x - 2,
                          num_y - center_y - 4);
-            ESP_LOGI(TAG, "Hour number %s created at (%d,%d)", num_text, num_x, num_y);
+            // ESP_LOGD(TAG, "Hour number %s created at (%d,%d)", num_text, num_x, num_y);
               // SAFE TO FREE — LVGL makes its own copy
             //free(marker_points);
 
@@ -242,7 +242,7 @@ static void clock_timer_cb(lv_timer_t *timer)
 
 void clock_init(void)
 {
-    ESP_LOGI(TAG, "Initializing analog clock");
+    ESP_LOGD(TAG, "Initializing analog clock");
 
     // Draw the clock face
     draw_clock_face();
@@ -254,7 +254,7 @@ void clock_init(void)
     datetime_t current_time;
     PCF85063_Read_Time(&current_time);
     clock_update(current_time.hour, current_time.minute, current_time.second);
-    ESP_LOGI(TAG, "Initial time set to %02d:%02d:%02d",
+    ESP_LOGD(TAG, "Initial time set to %02d:%02d:%02d",
              current_time.hour, current_time.minute, current_time.second);
 
     // Create LVGL timer to update clock every second (1000ms)
@@ -265,7 +265,7 @@ void clock_init(void)
         return;
     }
 
-    ESP_LOGI(TAG, "Clock initialized with LVGL timer");
+    ESP_LOGD(TAG, "Clock initialized with LVGL timer");
 }
 
 void clock_update(uint8_t hour, uint8_t minute, uint8_t second)
@@ -296,7 +296,7 @@ void clock_set_night_mode(bool is_night_mode)
     if (night_mode != is_night_mode)
     {
         night_mode = is_night_mode;
-        ESP_LOGI(TAG, "Clock mode changed to: %s", night_mode ? "NIGHT (green)" : "DAY (white)");
+        ESP_LOGD(TAG, "Clock mode changed to: %s", night_mode ? "NIGHT (green)" : "DAY (white)");
         // Redraw the entire clock with new colors
         draw_clock_face();
         create_hands();
@@ -355,5 +355,5 @@ void clock_cleanup(void)
     minute_hand = NULL;
     clock_face = NULL;
 
-    ESP_LOGI(TAG, "Clock cleaned up");
+    ESP_LOGD(TAG, "Clock cleaned up");
 }

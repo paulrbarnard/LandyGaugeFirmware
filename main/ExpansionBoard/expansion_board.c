@@ -144,7 +144,7 @@ static void process_inputs(uint8_t raw_byte, uint32_t now_ms)
                     input_snapshot.inputs[i].on_time = now_ms;
                 }
 
-                ESP_LOGI(TAG, "Input %s (%d): %s → %s",
+                ESP_LOGD(TAG, "Input %s (%d): %s → %s",
                          input_names[i], i,
                          old_state ? "ON" : "OFF",
                          new_state ? "ON" : "OFF");

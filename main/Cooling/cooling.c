@@ -536,7 +536,7 @@ static void draw_gauge_face(void)
 
 void cooling_init(void)
 {
-    ESP_LOGI(TAG, "Initializing cooling gauge");
+    ESP_LOGD(TAG, "Initializing cooling gauge");
 
     /* Reset state (wading_mode preserved — it persists until long-press clears it) */
     fan_low_angle  = 0;
@@ -557,7 +557,7 @@ void cooling_init(void)
     fan_anim_timer = lv_timer_create(fan_anim_timer_cb, FAN_ROTATE_PERIOD_MS, NULL);
 
     is_visible = true;
-    ESP_LOGI(TAG, "Cooling gauge initialized");
+    ESP_LOGD(TAG, "Cooling gauge initialized");
 }
 
 void cooling_update(void)
@@ -600,7 +600,7 @@ void cooling_set_night_mode(bool night)
 {
     if (night == night_mode) return;
     night_mode = night;
-    ESP_LOGI(TAG, "Night mode: %s", night ? "ON" : "OFF");
+    ESP_LOGD(TAG, "Night mode: %s", night ? "ON" : "OFF");
 
     if (!gauge_container) return;
 
@@ -633,7 +633,7 @@ void cooling_set_visible(bool visible)
 
 void cooling_cleanup(void)
 {
-    ESP_LOGI(TAG, "Cleaning up cooling gauge");
+    ESP_LOGD(TAG, "Cleaning up cooling gauge");
 
     /* Stop animation timer */
     if (fan_anim_timer) {
@@ -668,7 +668,7 @@ void cooling_cleanup(void)
     coolant_confirmed_low = false;
     coolant_last_update_ms = 0;
 
-    ESP_LOGI(TAG, "Cooling gauge cleaned up");
+    // ESP_LOGD(TAG, "Cooling gauge cleaned up");
 }
 
 void cooling_toggle_wading(void)

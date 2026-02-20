@@ -42,7 +42,7 @@ void create_gauge_shadows(lv_obj_t *parent, bool night_mode)
     // lv_obj_set_style_shadow_color(shadow_dark, lv_color_black(), 0);
     // lv_obj_set_style_shadow_ofs_x(shadow_dark, 4, 0);
     // lv_obj_set_style_shadow_ofs_y(shadow_dark, 4, 0);
-    // ESP_LOGI(TAG, "shadow_dark created");
+    // ESP_LOGD(TAG, "shadow_dark created");
 
     // Create light shadow effect (bottom-right accent glow)
     lv_obj_t *shadow_light = lv_obj_create(parent);
@@ -59,7 +59,7 @@ void create_gauge_shadows(lv_obj_t *parent, bool night_mode)
     lv_obj_set_style_shadow_color(shadow_light, get_accent_color(night_mode), 0);
     lv_obj_set_style_shadow_ofs_x(shadow_light, -4, 0);
     lv_obj_set_style_shadow_ofs_y(shadow_light, -4, 0);
-    ESP_LOGI(TAG, "shadow_light created");
+    ESP_LOGD(TAG, "shadow_light created");
 }
 
 /**
@@ -92,7 +92,7 @@ void create_gauge_shadows_inverted(lv_obj_t *parent, bool night_mode)
     lv_obj_set_style_shadow_color(shadow_dark, lv_color_black(), 0);
     lv_obj_set_style_shadow_ofs_x(shadow_dark, -4, 0);
     lv_obj_set_style_shadow_ofs_y(shadow_dark, -4, 0);
-    ESP_LOGI(TAG, "shadow_dark created (inverted)");
+    ESP_LOGD(TAG, "shadow_dark created (inverted)");
 
     // Create light shadow at TOP-LEFT (inverted from normal)
     lv_obj_t *shadow_light = lv_obj_create(parent);
@@ -109,5 +109,5 @@ void create_gauge_shadows_inverted(lv_obj_t *parent, bool night_mode)
     lv_obj_set_style_shadow_color(shadow_light, get_accent_color(night_mode), 0);
     lv_obj_set_style_shadow_ofs_x(shadow_light, 4, 0);
     lv_obj_set_style_shadow_ofs_y(shadow_light, 4, 0);
-    ESP_LOGI(TAG, "shadow_light created (inverted)");
+    ESP_LOGD(TAG, "shadow_light created (inverted)");
 }

@@ -160,7 +160,7 @@ esp_err_t ble_tpms_start_scan(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    ESP_LOGI(TAG, "Starting TPMS scan...");
+    ESP_LOGD(TAG, "Starting TPMS scan...");
 
     // Start discovery (scanning)
     int rc = ble_gap_disc(BLE_OWN_ADDR_PUBLIC, TPMS_SCAN_DURATION_SEC * 1000,
@@ -171,7 +171,7 @@ esp_err_t ble_tpms_start_scan(void)
     }
 
     scanning = true;
-    ESP_LOGI(TAG, "TPMS scan started (duration: %d sec)", TPMS_SCAN_DURATION_SEC);
+    ESP_LOGD(TAG, "TPMS scan started (duration: %d sec)", TPMS_SCAN_DURATION_SEC);
     return ESP_OK;
 }
 
@@ -188,7 +188,7 @@ esp_err_t ble_tpms_stop_scan(void)
     }
 
     scanning = false;
-    ESP_LOGI(TAG, "TPMS scan stopped");
+    ESP_LOGD(TAG, "TPMS scan stopped");
     return ESP_OK;
 }
 
@@ -213,7 +213,7 @@ void ble_tpms_set_fast_scan(bool enabled)
     uint32_t new_period = enabled ? TPMS_SCAN_PERIOD_FAST : TPMS_SCAN_PERIOD_NORMAL;
     if (new_period != current_scan_period_sec) {
         current_scan_period_sec = new_period;
-        ESP_LOGI(TAG, "TPMS scan mode: %s (period: %lus)", 
+        ESP_LOGD(TAG, "TPMS scan mode: %s (period: %lus)", 
                  enabled ? "FAST" : "NORMAL", current_scan_period_sec);
         
         // If enabling fast mode and not currently scanning, trigger immediate scan
@@ -446,7 +446,7 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
         static uint32_t last_unknown_log = 0;
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
         if (now - last_unknown_log > 5000) { // Log every 5 seconds max
-            ESP_LOGI(TAG, "Unknown TPMS sensor: %02X:%02X:%02X:%02X:%02X:%02X (RSSI: %d)",
+            ESP_LOGD(TAG, "Unknown TPMS sensor: %02X:%02X:%02X:%02X:%02X:%02X (RSSI: %d)",
                      sensor_mac[0], sensor_mac[1], sensor_mac[2],
                      sensor_mac[3], sensor_mac[4], sensor_mac[5], rssi);
             last_unknown_log = now;
@@ -506,10 +506,10 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     previous_pressure_psi[position] = data->pressure_psi;
     previous_pressure_valid[position] = true;
 
-    ESP_LOGI(TAG, "%s: %.1f PSI, %.1f°C, %d%% [Δ%lums, RSSI:%d]",
-             ble_tpms_position_str(position),
-             data->pressure_psi, data->temperature_c, data->battery_percent,
-             interval_ms, rssi);
+    // ESP_LOGD(TAG, "%s: %.1f PSI, %.1f°C, %d%% [Δ%lums, RSSI:%d]",
+    //          ble_tpms_position_str(position),
+    //          data->pressure_psi, data->temperature_c, data->battery_percent,
+    //          interval_ms, rssi);
 
     // Call update callback if registered
     if (update_callback != NULL) {

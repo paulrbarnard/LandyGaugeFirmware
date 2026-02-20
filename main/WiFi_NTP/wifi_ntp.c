@@ -63,7 +63,7 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         if (s_retry_num < MAX_RETRY && !s_abort) {
             esp_wifi_connect();
             s_retry_num++;
-            ESP_LOGI(TAG, "Retry WiFi connect (%d/%d)", s_retry_num, MAX_RETRY);
+            ESP_LOGD(TAG, "Retry WiFi connect (%d/%d)", s_retry_num, MAX_RETRY);
         } else {
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
             if (s_abort) {
@@ -114,7 +114,7 @@ static bool cooldown_active(void)
 
     uint32_t age_h = ((uint32_t)now - last) / 3600;
     if (age_h < WIFI_NTP_COOLDOWN_HOURS) {
-        ESP_LOGI(TAG, "NTP cooldown active — last sync %lu h ago (<%d h)",
+        ESP_LOGD(TAG, "NTP cooldown active — last sync %lu h ago (<%d h)",
                  (unsigned long)age_h, WIFI_NTP_COOLDOWN_HOURS);
         return true;
     }
