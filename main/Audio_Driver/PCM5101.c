@@ -1,4 +1,5 @@
 #include "PCM5101.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "AUDIO PCM5101"; 
 
@@ -117,6 +118,10 @@ void Audio_Init(void)
 }
 void Play_Music(const char* directory, const char* fileName)
 {  
+    ESP_LOGI(TAG, "Heap before play: DMA free=%u largest=%u, Internal free=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     Music_pause();
     const int maxPathLength = 100; 
     char filePath[maxPathLength];

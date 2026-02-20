@@ -19,6 +19,7 @@
 #include "Boost/boost.h"
 #include "Compass/compass.h"
 #include "EGT/egt.h"
+#include "Cooling/cooling.h"
 #include "expansion_board.h"
 #include "ads1115.h"
 #include "lis3mdl.h"
@@ -38,6 +39,7 @@ typedef enum {
     GAUGE_BOOST,
     GAUGE_COMPASS,
     GAUGE_EGT,
+    GAUGE_COOLING,
     GAUGE_COUNT
 } gauge_type_t;
 
@@ -50,6 +52,7 @@ static const gauge_type_t gauge_order[] = {
     GAUGE_CLOCK,
     GAUGE_BOOST,
     GAUGE_EGT,
+    GAUGE_COOLING,
     GAUGE_TIRE_PRESSURE,
     GAUGE_TILT,
     GAUGE_COMPASS,
@@ -59,7 +62,7 @@ static const gauge_type_t gauge_order[] = {
 /* Returns true if the gauge needs the expansion board to be connected */
 static bool gauge_needs_expansion(gauge_type_t g)
 {
-    return (g == GAUGE_BOOST || g == GAUGE_EGT || g == GAUGE_COMPASS);
+    return (g == GAUGE_BOOST || g == GAUGE_EGT || g == GAUGE_COMPASS || g == GAUGE_COOLING);
 }
 
 /* Find the index of a gauge in gauge_order[], or 0 if not found */
@@ -83,9 +86,15 @@ static bool should_skip_gauge(gauge_type_t g)
 #define AUTO_SWITCH_ROLL_THRESHOLD  30.0f  // Switch to tilt gauge (yellow zone)
 #define AUTO_SWITCH_LOCKOUT_MS      5000   // 5 second lockout after manual/auto switch
 #define INACTIVITY_TIMEOUT_MS       300000 // 5 minutes = 300,000 ms
+#define ALARM_RETURN_DELAY_MS       30000  // 30 seconds after alarm clears → return to previous gauge
 
 static uint32_t manual_switch_time = 0;    // Timestamp of last manual switch
 static uint32_t last_activity_time = 0;    // Timestamp of last activity (for auto-return to clock)
+
+// Alarm auto-return state: return to previous gauge when alarm clears
+static gauge_type_t alarm_previous_gauge = GAUGE_COUNT; // Gauge before alarm switch (GAUGE_COUNT = none)
+static bool         alarm_auto_switched  = false;       // True if current gauge was set by alarm
+static uint32_t     alarm_cleared_time   = 0;           // Timestamp when alarm condition first cleared
 
 // Thread-safe pending switch request (Driver_Loop sets, main loop handles)
 static volatile gauge_type_t pending_switch = GAUGE_COUNT;  // GAUGE_COUNT = no pending switch
@@ -174,10 +183,17 @@ static bool alarm_check_tpms_low(void)
     return ble_tpms_any_low_pressure(TPMS_LOW_PRESSURE_BAR);
 }
 
+/** Cooling alarm: any fan or coolant low signal active */
+static bool alarm_check_cooling(void)
+{
+    return cooling_alarm_active();
+}
+
 /* ── Alarm table — evaluated in priority order (highest first) ─────── */
 static const alarm_entry_t alarm_table[] = {
     { alarm_check_tilt,      GAUGE_TILT,          "Tilt warning"       },
     { alarm_check_egt,       GAUGE_EGT,           "EGT over-temp"      },
+    { alarm_check_cooling,   GAUGE_COOLING,       "Cooling alarm"      },
     { alarm_check_tpms_drop, GAUGE_TIRE_PRESSURE, "TPMS pressure drop" },
     { alarm_check_tpms_low,  GAUGE_TIRE_PRESSURE, "TPMS low pressure"  },
 };
@@ -195,6 +211,43 @@ static void check_auto_switch_alarms(void)
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     if ((now - manual_switch_time) < AUTO_SWITCH_LOCKOUT_MS) return;
 
+    /* ── Check if we should return to previous gauge after alarm cleared ── */
+    if (alarm_auto_switched) {
+        /* Check if the alarm that brought us here is still active */
+        bool still_active = false;
+        for (int i = 0; i < (int)ALARM_TABLE_COUNT; i++) {
+            if (alarm_table[i].target == current_gauge && alarm_table[i].check_fn()) {
+                still_active = true;
+                break;
+            }
+        }
+
+        if (still_active) {
+            alarm_cleared_time = 0;  /* Reset — alarm is still active */
+        } else {
+            if (alarm_cleared_time == 0) {
+                alarm_cleared_time = now;  /* Start the 30 s countdown */
+                ESP_LOGI("ALARM", "Alarm cleared — will return to gauge %d in %d s",
+                         alarm_previous_gauge, ALARM_RETURN_DELAY_MS / 1000);
+            } else if ((now - alarm_cleared_time) >= ALARM_RETURN_DELAY_MS) {
+                /* 30 s elapsed with alarm clear — switch back */
+                gauge_type_t return_to = alarm_previous_gauge;
+                alarm_auto_switched = false;
+                alarm_previous_gauge = GAUGE_COUNT;
+                alarm_cleared_time = 0;
+
+                if (!should_skip_gauge(return_to)) {
+                    ESP_LOGW("ALARM", "Alarm clear for %d s — returning to gauge %d",
+                             ALARM_RETURN_DELAY_MS / 1000, return_to);
+                    manual_switch_time = now;  /* lockout after return */
+                    switch_gauge(return_to);
+                    return;
+                }
+            }
+        }
+    }
+
+    /* ── Scan alarm table for new alarms ──────────────────────────────── */
     for (int i = 0; i < (int)ALARM_TABLE_COUNT; i++) {
         const alarm_entry_t *a = &alarm_table[i];
 
@@ -205,6 +258,13 @@ static void check_auto_switch_alarms(void)
             ESP_LOGW("ALARM", "%s — auto-switching to gauge %d", a->name, a->target);
             last_activity_time = now;
             manual_switch_time = now;   /* lockout prevents immediate re-trigger */
+
+            /* Save the current gauge so we can return when alarm clears */
+            if (!alarm_auto_switched) {
+                alarm_previous_gauge = current_gauge;
+            }
+            alarm_auto_switched = true;
+            alarm_cleared_time = 0;
 
             /* Clear one-shot alarm flags before switching */
             if (a->target == GAUGE_TIRE_PRESSURE) {
@@ -284,6 +344,10 @@ static void handle_select_action(void)
         case GAUGE_EGT:
             ESP_LOGI("MAIN", "Select: toggle EGT units");
             egt_toggle_units();
+            break;
+        case GAUGE_COOLING:
+            ESP_LOGI("MAIN", "Select: toggle wading mode");
+            cooling_toggle_wading();
             break;
         default:
             ESP_LOGI("MAIN", "Select action (no action on this gauge)");
@@ -388,6 +452,11 @@ static void handle_next_gauge_input(void)
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     manual_switch_time = now;
     last_activity_time = now;  // Reset inactivity timer
+
+    // Cancel alarm auto-return — user chose to navigate away
+    alarm_auto_switched = false;
+    alarm_previous_gauge = GAUGE_COUNT;
+    alarm_cleared_time = 0;
     
     ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (next, lockout %dms)", 
              current_gauge, next_gauge, AUTO_SWITCH_LOCKOUT_MS);
@@ -412,6 +481,11 @@ static void handle_prev_gauge_input(void)
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     manual_switch_time = now;
     last_activity_time = now;
+
+    // Cancel alarm auto-return — user chose to navigate away
+    alarm_auto_switched = false;
+    alarm_previous_gauge = GAUGE_COUNT;
+    alarm_cleared_time = 0;
 
     ESP_LOGI("MAIN", "Input - switching from gauge %d to %d (prev, lockout %dms)",
              current_gauge, prev_gauge, AUTO_SWITCH_LOCKOUT_MS);
@@ -443,6 +517,7 @@ static void enter_standby_mode(void)
         case GAUGE_BOOST:         boost_cleanup(); break;
         case GAUGE_COMPASS:       compass_cleanup(); break;
         case GAUGE_EGT:           egt_cleanup(); break;
+        case GAUGE_COOLING:       cooling_cleanup(); break;
         default: break;
     }
     
@@ -565,6 +640,10 @@ void switch_gauge(gauge_type_t new_gauge)
             ESP_LOGI("MAIN", "Cleaning up EGT gauge");
             egt_cleanup();
             break;
+        case GAUGE_COOLING:
+            ESP_LOGI("MAIN", "Cleaning up cooling gauge");
+            cooling_cleanup();
+            break;
         default:
             break;
     }
@@ -616,6 +695,11 @@ void switch_gauge(gauge_type_t new_gauge)
             egt_init();
             egt_set_night_mode(test_night_mode);
             break;
+        case GAUGE_COOLING:
+            ESP_LOGI("MAIN", "Initializing cooling gauge (%s mode)", test_night_mode ? "night" : "day");
+            cooling_init();
+            cooling_set_night_mode(test_night_mode);
+            break;
         default:
             break;
     }
@@ -633,7 +717,8 @@ void switch_gauge(gauge_type_t new_gauge)
              current_gauge == GAUGE_TIRE_PRESSURE ? "Tire Pressure" :
              current_gauge == GAUGE_BOOST ? "Boost" :
              current_gauge == GAUGE_COMPASS ? "Compass" :
-             current_gauge == GAUGE_EGT ? "EGT" : "Unknown",
+             current_gauge == GAUGE_EGT ? "EGT" :
+             current_gauge == GAUGE_COOLING ? "Cooling" : "Unknown",
              test_night_mode ? "night" : "day");
 }
 
@@ -836,6 +921,7 @@ void app_main(void)
                     case GAUGE_BOOST:         boost_set_night_mode(test_night_mode); break;
                     case GAUGE_COMPASS:       compass_set_night_mode(test_night_mode); break;
                     case GAUGE_EGT:           egt_set_night_mode(test_night_mode); break;
+                    case GAUGE_COOLING:       cooling_set_night_mode(test_night_mode); break;
                     default: break;
                 }
             }
@@ -929,6 +1015,16 @@ void app_main(void)
             if ((tilt_now - last_tilt_redraw_ms) >= 66) {  // ~15 FPS
                 last_tilt_redraw_ms = tilt_now;
                 tilt_set_angle(imu_get_roll());
+            }
+        }
+
+        // Update cooling gauge with expansion board input states (~10 Hz)
+        if (current_gauge == GAUGE_COOLING && expansion_board_detected()) {
+            static uint32_t last_cooling_ms = 0;
+            uint32_t cool_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((cool_now - last_cooling_ms) >= 100) {  // ~10 Hz
+                last_cooling_ms = cool_now;
+                cooling_update();
             }
         }
 

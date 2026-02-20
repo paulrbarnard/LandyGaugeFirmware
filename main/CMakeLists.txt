@@ -40,6 +40,7 @@ idf_component_register(
                               "./ExpansionBoard/lis3mdl.c"
                               "./ExpansionBoard/mcp9600.c"
                               "./EGT/egt.c"
+                              "./Cooling/cooling.c"
                               "./Settings/settings.c"
 
                          INCLUDE_DIRS 
@@ -68,6 +69,7 @@ idf_component_register(
                               "./Boost"
                               "./Compass"
                               "./EGT"
+                              "./Cooling"
                               "./ExpansionBoard"
                               "./Settings"
                               "./QMI8658"
