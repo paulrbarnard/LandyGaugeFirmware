@@ -22,6 +22,11 @@ void example_increase_lvgl_tick(void *arg)
 }
 
 
+// Track whether we've synced TE for the current LVGL render cycle.
+// Reset after the LAST flush of each cycle so the NEXT cycle's first
+// flush waits for a fresh TE pulse.
+static bool s_te_synced = false;
+
 void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_map)
 {
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t) drv->user_data;
@@ -30,17 +35,21 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
     int offsety1 = area->y1;
     int offsety2 = area->y2;
 
-    // Sync to vertical blanking on the first strip of each frame.
-    // lv_disp_flush_is_last() is true for the very last strip of a frame,
-    // so we use offsety1 == 0 as a proxy for "first strip".
-    if (offsety1 == 0) {
+    // Sync to vertical blanking on the FIRST flush of each LVGL render cycle.
+    // This ensures needle updates (which don't start at row 0) still get TE sync.
+    if (!s_te_synced) {
         lcd_wait_te();
+        s_te_synced = true;
     }
 
     // copy a buffer's content to a specific area of the display
     // SPI completion callback will call lv_disp_flush_ready() when DMA transfer completes
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
-    // Don't call lv_disp_flush_ready here - SPI callback handles it
+
+    // Reset sync flag after the last flush so next render cycle waits for TE
+    if (lv_disp_flush_is_last(drv)) {
+        s_te_synced = false;
+    }
 }
 
 /*Read the touchpad - only called if touch_available is true at init time */
@@ -113,19 +122,27 @@ void LVGL_Init(void)
     ESP_LOGI(TAG_LVGL, "Initialize LVGL library");
     lv_init();
     
-    // Single buffer in internal DMA-capable RAM.
-    // SPI master DMA on this board cannot transmit from PSRAM (tx_color fails),
-    // so we must keep the LVGL draw buffer in internal SRAM.
-    // TE-sync (vsync wait) handles tearing elimination instead of double-buffering.
-    lv_color_t *buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    // Double buffer in internal DMA-capable RAM (1/4 screen = 90 lines each).
+    // LVGL renders into one buffer while the other DMA-transfers to the
+    // display via SPI, pipelining CPU and bus work.  90-line strips keep
+    // the needle in ~3 flushes instead of 8, reducing visible tearing.
+    // CRITICAL: never fall back to PSRAM — SPI DMA cannot tx from it.
+    const size_t buf_bytes = LVGL_BUF_LEN * sizeof(lv_color_t);
+    lv_color_t *buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    lv_color_t *buf2 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!buf1) {
-        ESP_LOGE(TAG_LVGL, "Failed to allocate internal DMA buffer, falling back to PSRAM");
-        buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+        // Try half-size as last resort — still internal DMA only
+        ESP_LOGW(TAG_LVGL, "Could not alloc %d bytes, trying half", (int)buf_bytes);
+        const size_t half = buf_bytes / 2;
+        buf1 = heap_caps_malloc(half, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        if (buf2) { free(buf2); buf2 = NULL; }
+        buf2 = heap_caps_malloc(half, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     }
-    assert(buf1);
-    ESP_LOGI(TAG_LVGL, "LVGL buffer: %d bytes (single) in internal DMA RAM",
-             (int)(LVGL_BUF_LEN * sizeof(lv_color_t)));
-    lv_disp_draw_buf_init(&disp_buf, buf1, NULL, LVGL_BUF_LEN);  // Single buffer + TE sync
+    assert(buf1);  // Fatal if we can't get ANY internal DMA buffer
+    ESP_LOGI(TAG_LVGL, "LVGL buffer: %d bytes x %s in internal DMA RAM",
+             (int)(buf2 ? buf_bytes : buf_bytes), buf2 ? "2 (double)" : "1 (single)");
+    lv_disp_draw_buf_init(&disp_buf, buf1, buf2,
+                          buf2 ? LVGL_BUF_LEN : LVGL_BUF_LEN);  // Double buffer + TE sync
 
     ESP_LOGI(TAG_LVGL, "Register display driver to LVGL");
     lv_disp_drv_init(&disp_drv);

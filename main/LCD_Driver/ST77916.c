@@ -20,9 +20,11 @@ uint8_t LCD_Backlight = 70;
 // vertical blanking period, eliminating visible tearing.
 static SemaphoreHandle_t te_sem = NULL;
 static volatile bool te_enabled = false;
+static volatile uint32_t te_isr_count = 0;  // diagnostic counter
 
 static void IRAM_ATTR te_isr_handler(void *arg)
 {
+    te_isr_count++;
     BaseType_t hptw = pdFALSE;
     xSemaphoreGiveFromISR(te_sem, &hptw);
     if (hptw) portYIELD_FROM_ISR();
@@ -36,8 +38,19 @@ static void IRAM_ATTR te_isr_handler(void *arg)
 void lcd_wait_te(void)
 {
     if (te_enabled && te_sem) {
+        // Drain any stale signal so we wait for a FRESH pulse
+        xSemaphoreTake(te_sem, 0);
+        // Now block until the next TE rising edge
         xSemaphoreTake(te_sem, pdMS_TO_TICKS(20));
     }
+}
+
+/**
+ * @brief Return cumulative TE interrupt count (for diagnostics).
+ */
+uint32_t lcd_get_te_count(void)
+{
+    return te_isr_count;
 }
 
 // LVGL display driver pointer - set by LVGL_Init before LCD_Init

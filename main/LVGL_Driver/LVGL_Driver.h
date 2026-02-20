@@ -10,10 +10,12 @@
 
 #include "ST77916.h"
 
-// LVGL buffer size - 1/10 screen in internal DMA RAM (36 lines x 360 pixels)
-// SPI master DMA cannot transmit from PSRAM on this board, so buffers
-// must stay in internal DMA-capable RAM.  TE-sync eliminates tearing.
-#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 10))
+// LVGL buffer size - 1/4 screen (90 lines x 360 pixels = ~63 KiB each)
+// Double-buffered: LVGL renders into one while the other DMA-transfers.
+// 90-line buffers keep the needle (260px centred) in ~3 strips instead of 8,
+// greatly reducing visible tearing at strip boundaries.
+// SPI master DMA cannot transmit from PSRAM on this board.
+#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 4))
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 
 extern lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)

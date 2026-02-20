@@ -100,3 +100,8 @@ void ST77916_FillScreen(uint16_t color);
  */
 void lcd_wait_te(void);
 
+/**
+ * @brief Return cumulative TE interrupt count (for diagnostics).
+ */
+uint32_t lcd_get_te_count(void);
+

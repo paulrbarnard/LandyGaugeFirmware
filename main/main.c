@@ -952,6 +952,18 @@ void app_main(void)
         
         // Check for display SPI errors and trigger refresh if needed
         lvgl_check_and_refresh();
+
+        // TE diagnostic: log pulse count every 10 seconds to verify GPIO 18 is toggling
+        {
+            static uint32_t last_te_log_ms = 0;
+            uint32_t now = lv_tick_get();
+            if (now - last_te_log_ms >= 10000) {
+                last_te_log_ms = now;
+                ESP_LOGI("TE", "TE pulse count: %lu (~%lu Hz)",
+                         (unsigned long)lcd_get_te_count(),
+                         (unsigned long)(lcd_get_te_count() / (now / 1000)));
+            }
+        }
         
         // raise the task priority of LVGL and/or reduce the handler period can improve the performance
         vTaskDelay(pdMS_TO_TICKS(10));
