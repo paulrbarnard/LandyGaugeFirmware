@@ -42,11 +42,11 @@ void WIFI_Init(void *arg)
     esp_netif_create_default_wifi_sta();                                 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();                 
     esp_wifi_init(&cfg);                                      
-    esp_wifi_set_mode(WIFI_MODE_STA);              
-    esp_wifi_start();                            
-
-    WIFI_NUM = WIFI_Scan();
-    printf("WIFI:%d\r\n",WIFI_NUM);
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    // WiFi is NOT started here — wifi_ntp_start() handles start/stop
+    
+    WiFi_Scan_Finish = 1;
+    Scan_finish = 1;
     
     vTaskDelete(NULL);
 }

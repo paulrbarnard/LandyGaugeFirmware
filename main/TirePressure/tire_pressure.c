@@ -92,8 +92,20 @@ static void update_battery_label(int wheel)
     if (wheel < 0 || wheel > 3 || !battery_labels[wheel]) return;
     
     char buf[16];
-    snprintf(buf, sizeof(buf), "%d%%", battery_values[wheel]);
+    uint8_t pct = battery_values[wheel];
+    snprintf(buf, sizeof(buf), "%d%%", pct);
     lv_label_set_text(battery_labels[wheel], buf);
+
+    // Color: red < 2%, yellow < 5%, otherwise accent
+    lv_color_t col;
+    if (pct < 2) {
+        col = lv_color_hex(0xFF0000);  // red
+    } else if (pct < 5) {
+        col = lv_color_hex(0xFFCC00);  // yellow
+    } else {
+        col = get_accent_color(night_mode);
+    }
+    lv_obj_set_style_text_color(battery_labels[wheel], col, 0);
 }
 
 /**
@@ -168,8 +180,6 @@ static void draw_gauge_face(void)
     
     // Get the accent color for pressure text
     lv_color_t text_color = get_accent_color(night_mode);
-    // Secondary color for temp/battery (slightly dimmer)
-    lv_color_t secondary_color = night_mode ? lv_color_hex(0x00AA00) : lv_color_hex(0x666666);
     // Units label: black in day mode (roof is white), green in night mode
     lv_color_t units_color = night_mode ? COLOR_GREEN : lv_color_black();
     
@@ -194,7 +204,7 @@ static void draw_gauge_face(void)
     // Temperature (middle)
     temp_labels[0] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(temp_labels[0], &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(temp_labels[0], secondary_color, 0);
+    lv_obj_set_style_text_color(temp_labels[0], text_color, 0);
     lv_obj_set_style_text_align(temp_labels[0], LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_width(temp_labels[0], 80);
     lv_obj_align(temp_labels[0], LV_ALIGN_CENTER, -x_left - 35, y_front + line_spacing + 10);
@@ -202,7 +212,7 @@ static void draw_gauge_face(void)
     // Battery (inner/bottom)
     battery_labels[0] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(battery_labels[0], &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(battery_labels[0], secondary_color, 0);
+    lv_obj_set_style_text_color(battery_labels[0], text_color, 0);
     lv_obj_set_style_text_align(battery_labels[0], LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_width(battery_labels[0], 80);
     lv_obj_align(battery_labels[0], LV_ALIGN_CENTER, -x_left - 35, y_front + line_spacing * 2 + 8);
@@ -218,14 +228,14 @@ static void draw_gauge_face(void)
     // Temperature (middle)
     temp_labels[1] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(temp_labels[1], &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(temp_labels[1], secondary_color, 0);
+    lv_obj_set_style_text_color(temp_labels[1], text_color, 0);
     lv_obj_set_style_text_align(temp_labels[1], LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_align(temp_labels[1], LV_ALIGN_CENTER, x_right, y_front + line_spacing + 10);
     
     // Battery (inner/bottom)
     battery_labels[1] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(battery_labels[1], &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(battery_labels[1], secondary_color, 0);
+    lv_obj_set_style_text_color(battery_labels[1], text_color, 0);
     lv_obj_set_style_text_align(battery_labels[1], LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_align(battery_labels[1], LV_ALIGN_CENTER, x_right, y_front + line_spacing * 2 + 8);
     
@@ -241,7 +251,7 @@ static void draw_gauge_face(void)
     // Temperature (middle)
     temp_labels[2] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(temp_labels[2], &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(temp_labels[2], secondary_color, 0);
+    lv_obj_set_style_text_color(temp_labels[2], text_color, 0);
     lv_obj_set_style_text_align(temp_labels[2], LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_width(temp_labels[2], 80);
     lv_obj_align(temp_labels[2], LV_ALIGN_CENTER, -x_left - 35, y_rear + line_spacing + 10);
@@ -249,7 +259,7 @@ static void draw_gauge_face(void)
     // Battery (inner/bottom)
     battery_labels[2] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(battery_labels[2], &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(battery_labels[2], secondary_color, 0);
+    lv_obj_set_style_text_color(battery_labels[2], text_color, 0);
     lv_obj_set_style_text_align(battery_labels[2], LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_set_width(battery_labels[2], 80);
     lv_obj_align(battery_labels[2], LV_ALIGN_CENTER, -x_left - 35, y_rear + line_spacing * 2 + 8);
@@ -265,14 +275,14 @@ static void draw_gauge_face(void)
     // Temperature (middle)
     temp_labels[3] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(temp_labels[3], &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(temp_labels[3], secondary_color, 0);
+    lv_obj_set_style_text_color(temp_labels[3], text_color, 0);
     lv_obj_set_style_text_align(temp_labels[3], LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_align(temp_labels[3], LV_ALIGN_CENTER, x_right, y_rear + line_spacing + 10);
     
     // Battery (inner/bottom)
     battery_labels[3] = lv_label_create(gauge_container);
     lv_obj_set_style_text_font(battery_labels[3], &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(battery_labels[3], secondary_color, 0);
+    lv_obj_set_style_text_color(battery_labels[3], text_color, 0);
     lv_obj_set_style_text_align(battery_labels[3], LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_align(battery_labels[3], LV_ALIGN_CENTER, x_right, y_rear + line_spacing * 2 + 8);;
     lv_obj_align(pressure_labels[3], LV_ALIGN_CENTER, x_right, y_rear);

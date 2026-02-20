@@ -1,6 +1,10 @@
 /**
  * @file wifi_ntp.h
  * @brief WiFi connection and NTP time synchronization
+ *
+ * WiFi is started on ignition-on and stopped automatically after a
+ * successful NTP sync or after a timeout (default 2 minutes).  A 24-hour
+ * cooldown stored in NVS prevents unnecessary syncs on short drives.
  */
 
 #ifndef WIFI_NTP_H
@@ -13,22 +17,48 @@ extern "C" {
 #include <stdbool.h>
 
 /**
- * @brief Initialize WiFi and connect to network
- * @return true if connection successful, false otherwise
+ * @brief One-time setup: register WiFi event handlers and configure credentials.
+ *
+ * Call once during boot (after Wireless_Init has created the netif/event loop
+ * and esp_wifi_init/set_mode/start).  Does NOT start a connection — WiFi is
+ * left in STA-stopped state ready for wifi_ntp_start().
+ *
+ * @return true on success
  */
 bool wifi_ntp_init(void);
 
 /**
- * @brief Synchronize time from NTP server and update RTC
- * @return true if time sync successful, false otherwise
+ * @brief Start WiFi → NTP sync cycle (non-blocking).
+ *
+ * Launches a background FreeRTOS task that:
+ *   1. Starts WiFi STA and connects to the configured AP
+ *   2. Syncs time via SNTP and updates the RTC
+ *   3. Stops WiFi to save power
+ *   4. Self-deletes
+ *
+ * If the last successful sync was less than WIFI_NTP_COOLDOWN_HOURS ago
+ * (read from NVS), the request is silently skipped.
+ *
+ * Safe to call repeatedly — ignored if a sync is already in progress.
  */
-bool wifi_ntp_sync_time(void);
+void wifi_ntp_start(void);
 
 /**
- * @brief Check if WiFi is connected
- * @return true if connected, false otherwise
+ * @brief Force-stop any in-progress WiFi/NTP activity and shut down WiFi.
+ *
+ * Called when ignition turns OFF while a sync is still running.
+ */
+void wifi_ntp_stop(void);
+
+/**
+ * @brief Check if WiFi is currently connected.
  */
 bool wifi_is_connected(void);
+
+/**
+ * @brief Check if a sync task is currently running.
+ */
+bool wifi_ntp_is_active(void);
 
 #ifdef __cplusplus
 }

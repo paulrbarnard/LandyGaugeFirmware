@@ -25,7 +25,6 @@
 #include "mcp9600.h"
 #include "settings.h"
 #include "nvs_flash.h"
-#include "esp_wifi.h"
 #include "soc/rtc.h"
 #include <math.h>
 
@@ -463,8 +462,7 @@ static void enter_standby_mode(void)
     ble_tpms_stop_scan();
     
     // 5. Stop WiFi to save radio power
-    esp_wifi_disconnect();
-    esp_wifi_stop();
+    wifi_ntp_stop();
     
     // 6. Reduce CPU frequency to 80 MHz to save power
     rtc_cpu_freq_config_t freq_config;
@@ -510,9 +508,8 @@ static void exit_standby_mode(void)
         create_touch_overlay();
     }
     
-    // 4. Restart WiFi and re-sync time
-    esp_wifi_start();
-    // WiFi event handler will auto-reconnect; NTP will re-sync on connect
+    // 4. Restart WiFi NTP sync (respects 24 h cooldown, auto-shuts down)
+    wifi_ntp_start();
     
     // 5. Resume BLE scanning
     ble_tpms_start_scan();
@@ -642,7 +639,6 @@ void switch_gauge(gauge_type_t new_gauge)
 
 void Driver_Loop(void *parameter)
 {
-    Wireless_Init();
     while(1)
     {
         // Skip all sensor polling while in standby — just sleep
@@ -737,13 +733,10 @@ void app_main(void)
     
     // Other gauges will be initialized on-demand when switching
     
-    // Initialize WiFi and sync time from NTP in background
-    if (wifi_ntp_init()) {
-        ESP_LOGI("MAIN", "WiFi connected");
-        if (wifi_ntp_sync_time()) {
-            ESP_LOGI("MAIN", "Time synchronized from NTP");
-        }
-    }
+    // Initialize WiFi NTP (registers handlers, stops WiFi until needed)
+    wifi_ntp_init();
+    // Kick off non-blocking NTP sync (respects 24 h cooldown)
+    wifi_ntp_start();
     
     // Initialize BLE TPMS (using NimBLE - lighter weight than Bluedroid)
     if (ble_tpms_init() == ESP_OK) {
