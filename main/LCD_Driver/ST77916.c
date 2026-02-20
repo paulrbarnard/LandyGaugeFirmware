@@ -2,6 +2,7 @@
 #include "esp_heap_caps.h"
 #include <stddef.h>
 #include "ST77916.h"
+#include "freertos/semphr.h"
 
 
 #define LCD_OPCODE_WRITE_CMD        (0x02ULL)
@@ -12,6 +13,32 @@ static const char *TAG_LCD = "ST77916";
 
 esp_lcd_panel_handle_t panel_handle = NULL;
 uint8_t LCD_Backlight = 70;
+
+// TE (Tearing Effect) pin synchronisation
+// The ST77916 toggles this pin once per VSYNC when enabled via cmd 0x35.
+// We use a binary semaphore so the LVGL flush can block until the next
+// vertical blanking period, eliminating visible tearing.
+static SemaphoreHandle_t te_sem = NULL;
+static volatile bool te_enabled = false;
+
+static void IRAM_ATTR te_isr_handler(void *arg)
+{
+    BaseType_t hptw = pdFALSE;
+    xSemaphoreGiveFromISR(te_sem, &hptw);
+    if (hptw) portYIELD_FROM_ISR();
+}
+
+/**
+ * @brief Wait for the next TE pulse (vertical blanking).
+ * Non-blocking if TE was not enabled – returns immediately.
+ * Times out after 20 ms (just over one frame at 60 Hz) so we never hang.
+ */
+void lcd_wait_te(void)
+{
+    if (te_enabled && te_sem) {
+        xSemaphoreTake(te_sem, pdMS_TO_TICKS(20));
+    }
+}
 
 // LVGL display driver pointer - set by LVGL_Init before LCD_Init
 static lv_disp_drv_t *s_lvgl_disp_drv = NULL;
@@ -371,6 +398,36 @@ static int QSPI_Init(void) {
   ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
   ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
   ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+
+  // --- Enable TE (Tearing Effect) sync on GPIO 18 ---
+  // Send TEON command (0x35) with param 0x00 (V-Blank only) to the display.
+  // The st77916 panel driver wraps commands for QSPI, so we use its io handle.
+  {
+      int te_cmd = 0x35;  // TEON
+      te_cmd &= 0xFF;
+      te_cmd <<= 8;
+      te_cmd |= LCD_OPCODE_WRITE_CMD << 24;
+      uint8_t te_param = 0x00;  // 0x00 = V-Blank only
+      esp_lcd_panel_io_tx_param(io_handle, te_cmd, &te_param, 1);
+      ESP_LOGI(TAG_LCD, "TEON (0x35) command sent – TE output enabled on display");
+  }
+
+  // Configure GPIO 18 as input with rising-edge interrupt
+  te_sem = xSemaphoreCreateBinary();
+  assert(te_sem);
+
+  gpio_config_t te_io_conf = {
+      .pin_bit_mask = 1ULL << ESP_PANEL_LCD_SPI_IO_TE,
+      .mode = GPIO_MODE_INPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_ENABLE,
+      .intr_type = GPIO_INTR_POSEDGE,
+  };
+  ESP_ERROR_CHECK(gpio_config(&te_io_conf));
+  ESP_ERROR_CHECK(gpio_install_isr_service(ESP_INTR_FLAG_IRAM));
+  ESP_ERROR_CHECK(gpio_isr_handler_add(ESP_PANEL_LCD_SPI_IO_TE, te_isr_handler, NULL));
+  te_enabled = true;
+  ESP_LOGI(TAG_LCD, "TE pin GPIO %d configured – vsync sync enabled", ESP_PANEL_LCD_SPI_IO_TE);
 
   ESP_LOGI(TAG_LCD, "ST77916 initialized successfully");
   return 1;

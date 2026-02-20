@@ -94,3 +94,9 @@ void Backlight_Init(void);
 void Set_Backlight(uint8_t Light);
 void ST77916_FillScreen(uint16_t color);
 
+/**
+ * @brief Wait for the next TE (tearing effect) pulse from the display.
+ * Blocks up to 20 ms. No-op if TE was not initialised.
+ */
+void lcd_wait_te(void);
+

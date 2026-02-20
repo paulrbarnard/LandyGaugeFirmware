@@ -10,9 +10,10 @@
 
 #include "ST77916.h"
 
-// LVGL buffer size - 1/10 screen to fit in internal DMA RAM (36 lines x 360 pixels)
-// Using internal RAM instead of PSRAM to avoid BLE/DMA conflicts
-#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 10))
+// LVGL buffer size - 1/3 screen for double buffering in PSRAM (120 lines x 360 pixels)
+// Two buffers: LVGL renders into one while SPI DMA sends the other.
+// PSRAM is DMA-capable on this board (CONFIG_SOC_PSRAM_DMA_CAPABLE=y).
+#define LVGL_BUF_LEN  (EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 3))
 #define EXAMPLE_LVGL_TICK_PERIOD_MS    2
 
 extern lv_disp_draw_buf_t disp_buf;                                                 // contains internal graphic buffer(s) called draw buffer(s)

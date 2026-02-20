@@ -29,6 +29,14 @@ void example_lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t
     int offsetx2 = area->x2;
     int offsety1 = area->y1;
     int offsety2 = area->y2;
+
+    // Sync to vertical blanking on the first strip of each frame.
+    // lv_disp_flush_is_last() is true for the very last strip of a frame,
+    // so we use offsety1 == 0 as a proxy for "first strip".
+    if (offsety1 == 0) {
+        lcd_wait_te();
+    }
+
     // copy a buffer's content to a specific area of the display
     // SPI completion callback will call lv_disp_flush_ready() when DMA transfer completes
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);
@@ -105,18 +113,28 @@ void LVGL_Init(void)
     ESP_LOGI(TAG_LVGL, "Initialize LVGL library");
     lv_init();
     
-    // Use internal DMA-capable RAM to avoid PSRAM/BLE conflicts
-    // Single buffer mode - slower but more reliable with BLE active
-    lv_color_t *buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    if (!buf1) {
-        ESP_LOGE(TAG_LVGL, "Failed to allocate internal DMA buffer, falling back to PSRAM");
-        buf1 = heap_caps_malloc(LVGL_BUF_LEN * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    // Double buffer in PSRAM — LVGL renders into one while SPI DMA sends the other.
+    // PSRAM is Octal @ 80 MHz with DMA support on this board.
+    size_t buf_bytes = LVGL_BUF_LEN * sizeof(lv_color_t);
+    lv_color_t *buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA);
+    lv_color_t *buf2 = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA);
+    if (!buf1 || !buf2) {
+        // Fall back to single internal-DMA buffer if PSRAM alloc fails
+        ESP_LOGW(TAG_LVGL, "PSRAM double-buffer alloc failed, falling back to single internal buffer");
+        if (buf1) free(buf1);
+        if (buf2) free(buf2);
+        buf2 = NULL;
+        buf_bytes = EXAMPLE_LCD_WIDTH * (EXAMPLE_LCD_HEIGHT / 10) * sizeof(lv_color_t);
+        buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        if (!buf1) {
+            buf1 = heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM);
+        }
     }
     assert(buf1);
-    ESP_LOGI(TAG_LVGL, "LVGL buffer allocated: %d bytes in %s", 
-             LVGL_BUF_LEN * sizeof(lv_color_t),
-             heap_caps_get_free_size(MALLOC_CAP_DMA) > 0 ? "internal DMA RAM" : "PSRAM");
-    lv_disp_draw_buf_init(&disp_buf, buf1, NULL, LVGL_BUF_LEN);  // Single buffer mode
+    ESP_LOGI(TAG_LVGL, "LVGL buffer: %d bytes x %s in %s",
+             (int)buf_bytes, buf2 ? "2 (double)" : "1 (single)",
+             buf2 ? "PSRAM" : "internal");
+    lv_disp_draw_buf_init(&disp_buf, buf1, buf2, buf2 ? LVGL_BUF_LEN : (buf_bytes / sizeof(lv_color_t)));
 
     ESP_LOGI(TAG_LVGL, "Register display driver to LVGL");
     lv_disp_drv_init(&disp_drv);
