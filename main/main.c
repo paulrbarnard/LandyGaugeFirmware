@@ -22,6 +22,7 @@
 #include "Cooling/cooling.h"
 #include "expansion_board.h"
 #include "ads1115.h"
+#include "warning_beep.h"
 #include "lis3mdl.h"
 #include "mcp9600.h"
 #include "settings.h"
@@ -346,8 +347,8 @@ static void handle_select_action(void)
             egt_toggle_units();
             break;
         case GAUGE_COOLING:
-            ESP_LOGI("MAIN", "Select: toggle wading mode");
-            cooling_toggle_wading();
+            ESP_LOGI("MAIN", "Select: cooling (long-press for wading)");
+            // Wading toggle moved to long-press — single tap does nothing on cooling
             break;
         default:
             ESP_LOGI("MAIN", "Select action (no action on this gauge)");
@@ -361,6 +362,12 @@ static void handle_select_action(void)
 #define DOUBLE_TAP_WINDOW_MS  400   // Max interval between taps to count as double-tap
 static uint32_t select_tap_time = 0;     // Timestamp of the pending first tap (0 = none)
 static bool     select_tap_pending = false;
+
+// Long-press detection for expansion board select button
+#define SELECT_LONG_PRESS_MS  1000  // Hold time to trigger long-press action
+static bool     select_held = false;       // Button currently being held
+static uint32_t select_held_since = 0;     // When button was first seen held
+static bool     select_long_fired = false; // Long-press already fired this hold
 
 /**
  * @brief Called when select button is pressed (or touch center long-pressed).
@@ -475,8 +482,16 @@ static void touch_event_handler(lv_event_t * e)
         }
 
         if (touch_in_center(&point)) {
-            ESP_LOGI("MAIN", "Long press center (%d,%d) — select action", point.x, point.y);
-            process_select_tap();
+            ESP_LOGI("MAIN", "Long press center (%d,%d) — long-press action", point.x, point.y);
+            warning_beep_play(BEEP_SHORT);
+            // Cancel any pending single/double tap
+            select_tap_pending = false;
+            select_tap_time = 0;
+            // Fire long-press action (same as select button long-press)
+            if (current_gauge == GAUGE_COOLING) {
+                ESP_LOGW("MAIN", "Touch long-press — toggle wading");
+                cooling_toggle_wading();
+            }
         } else {
             ESP_LOGI("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
         }
@@ -652,6 +667,12 @@ void switch_gauge(gauge_type_t new_gauge)
 {
     ESP_LOGI("MAIN", "switch_gauge called: current=%d, new=%d, night_mode=%d", 
              current_gauge, new_gauge, test_night_mode);
+
+    /* Block switching away from cooling gauge while wading mode is active */
+    if (current_gauge == GAUGE_COOLING && new_gauge != GAUGE_COOLING && cooling_get_wading()) {
+        ESP_LOGW("MAIN", "Wading mode active — cannot leave cooling gauge");
+        return;
+    }
     
     if (new_gauge == current_gauge) {
         ESP_LOGI("MAIN", "Already on gauge %d, ignoring", new_gauge);
@@ -856,6 +877,7 @@ void app_main(void)
     
     LCD_Init();
     Audio_Init();
+    warning_beep_init();  // Initialize beep system early (before any gauge)
     button_input_init();  // Initialize button input (works on all versions)
     LVGL_Init();   // returns the screen object
 
@@ -951,7 +973,39 @@ void app_main(void)
         
         // Check expansion board select button — single tap = action, double tap = clock
         if (expansion_board_detected() && exbd_select_pressed()) {
-            process_select_tap();
+            if (!select_long_fired) {  // Ignore edge if long-press already fired this hold
+                process_select_tap();
+            }
+        }
+        
+        // Long-press detection for select button (e.g. wading toggle on cooling gauge)
+        if (expansion_board_detected()) {
+            bool btn_now = exbd_get_input(EXBD_INPUT_SELECT);
+            uint32_t now_lp = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if (btn_now && !select_held) {
+                // Button just pressed — start tracking
+                select_held = true;
+                select_held_since = now_lp;
+                select_long_fired = false;
+            } else if (btn_now && select_held && !select_long_fired) {
+                // Button still held — check duration
+                if ((now_lp - select_held_since) >= SELECT_LONG_PRESS_MS) {
+                    select_long_fired = true;
+                    // Cancel any pending single/double tap
+                    select_tap_pending = false;
+                    select_tap_time = 0;
+                    // Beep to confirm long-press accepted
+                    warning_beep_play(BEEP_SHORT);
+                    // Fire long-press action
+                    if (current_gauge == GAUGE_COOLING) {
+                        ESP_LOGW("MAIN", "Select long-press — toggle wading");
+                        cooling_toggle_wading();
+                    }
+                }
+            } else if (!btn_now && select_held) {
+                // Button released
+                select_held = false;
+            }
         }
         
         // Check if deferred single-tap expired (fires gauge action after 400ms)

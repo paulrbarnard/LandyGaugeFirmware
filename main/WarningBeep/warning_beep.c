@@ -212,8 +212,15 @@ void warning_beep_init(void)
 
 void warning_beep_play(beep_duration_t duration)
 {
-    // Play a single beep (blocking)
-    play_tone(duration);
+    // Play a single confirmation beep (bypasses warning_active check)
+    if (i2s_tx_chan == NULL) {
+        ESP_LOGW(TAG, "I2S not initialized — cannot play beep");
+        return;
+    }
+    size_t bytes_written;
+    i2s_channel_write(i2s_tx_chan, chime_buffer,
+                      CHIME_SAMPLES * sizeof(int16_t),
+                      &bytes_written, pdMS_TO_TICKS(200));
 }
 
 void warning_beep_start(warning_level_type_t level)

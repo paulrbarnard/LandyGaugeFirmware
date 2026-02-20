@@ -17,12 +17,119 @@
 #include "expansion_board.h"
 #include "mcp23017.h"
 #include "PCM5101.h"
+#include "imu_attitude.h"
+#include "QMI8658/QMI8658.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 
 static const char *TAG = "COOLING";
+
+/* ── IMU-based coolant float filter ─────────────────────────────────── *
+ *
+ * The coolant low sensor is a float switch.  Braking, acceleration, or
+ * significant tilt causes the fluid to slosh, giving false readings.
+ *
+ * Instead of a simple time delay we use the IMU:
+ *   • "Settled" = tilt (pitch & roll) within limits AND lateral/longitudinal
+ *     G-force deviation from static 1 g is small.
+ *   • Only accumulate "low" time while the vehicle is settled.
+ *   • Alarm confirmed after COOLANT_CONFIRM_MS of accumulated settled-low time.
+ *   • If sensor reads OK while settled, clear after COOLANT_CLEAR_MS.
+ *   • While unsettled the counters freeze — we simply don't trust the reading.
+ */
+#define COOLANT_CONFIRM_MS      3000   /* Settled-low time to confirm alarm      */
+#define COOLANT_CLEAR_MS        1000   /* Settled-OK time to clear alarm         */
+#define COOLANT_MAX_TILT_RATE   2.0f   /* Max degrees change per sample to be "settled" */
+#define COOLANT_MAX_G_DEVIATION 0.15f  /* Max deviation from 1 g (in g units)    */
+
+static uint32_t coolant_low_accum_ms  = 0;   /* Accumulated settled-low time     */
+static uint32_t coolant_ok_accum_ms   = 0;   /* Accumulated settled-OK time      */
+static bool     coolant_confirmed_low = false; /* Filtered/confirmed alarm state */
+static uint32_t coolant_last_update_ms = 0;
+
+/* Previous pitch/roll for rate-of-change check */
+static float prev_pitch = 0.0f;
+static float prev_roll  = 0.0f;
+static bool  prev_valid = false;
+
+/**
+ * @brief Check if vehicle is settled enough to trust the coolant float.
+ *
+ * Uses rate-of-change of pitch/roll (not absolute angle — mounting offset
+ * would cause false "unsettled") and raw accelerometer magnitude.
+ */
+static bool vehicle_is_settled(void)
+{
+    float pitch = imu_get_pitch();
+    float roll  = imu_get_roll();
+
+    /* Check tilt stability: if pitch or roll changed more than threshold
+       since last sample, vehicle is moving/bouncing */
+    if (prev_valid) {
+        float dp = fabsf(pitch - prev_pitch);
+        float dr = fabsf(roll  - prev_roll);
+        prev_pitch = pitch;
+        prev_roll  = roll;
+        if (dp > COOLANT_MAX_TILT_RATE || dr > COOLANT_MAX_TILT_RATE)
+            return false;
+    } else {
+        prev_pitch = pitch;
+        prev_roll  = roll;
+        prev_valid = true;
+        return false;  /* First sample — can't compute rate yet */
+    }
+
+    /* Check total G magnitude — should be close to 1.0 g when stationary.
+       Significant braking/accel/cornering pushes it away from 1 g. */
+    float g_mag = sqrtf(Accel.x * Accel.x + Accel.y * Accel.y + Accel.z * Accel.z);
+    if (fabsf(g_mag - 1.0f) > COOLANT_MAX_G_DEVIATION)
+        return false;
+
+    return true;
+}
+
+/**
+ * @brief Update the filtered coolant state.
+ *
+ * Called at ~10 Hz from cooling_update().  Returns the filtered coolant-OK
+ * status (true = level OK, false = confirmed low).
+ *
+ * @param raw_low  true if the raw sensor says coolant is low right now
+ * @param dt_ms    elapsed time since last call
+ */
+static bool coolant_filter_update(bool raw_low, uint32_t dt_ms)
+{
+    bool settled = vehicle_is_settled();
+
+    if (settled) {
+        if (raw_low) {
+            /* Accumulate settled-low time, reset OK counter */
+            coolant_low_accum_ms += dt_ms;
+            coolant_ok_accum_ms = 0;
+
+            if (!coolant_confirmed_low && coolant_low_accum_ms >= COOLANT_CONFIRM_MS) {
+                coolant_confirmed_low = true;
+                ESP_LOGW(TAG, "Coolant LOW confirmed after %lu ms settled-low",
+                         (unsigned long)coolant_low_accum_ms);
+            }
+        } else {
+            /* Sensor says OK — accumulate settled-OK time, reset low counter */
+            coolant_ok_accum_ms += dt_ms;
+            coolant_low_accum_ms = 0;
+
+            if (coolant_confirmed_low && coolant_ok_accum_ms >= COOLANT_CLEAR_MS) {
+                coolant_confirmed_low = false;
+                ESP_LOGI(TAG, "Coolant OK — alarm cleared after %lu ms settled-OK",
+                         (unsigned long)coolant_ok_accum_ms);
+            }
+        }
+    }
+    /* While unsettled: counters freeze — don't trust the reading either way */
+
+    return !coolant_confirmed_low;  /* true = OK, false = low */
+}
 
 /* ── Display state ──────────────────────────────────────────────────── */
 static bool night_mode = true;
@@ -289,10 +396,8 @@ static void coolant_draw_cb(lv_event_t *e)
     lv_draw_line_dsc_init(&water_dsc);
     water_dsc.width = 2;
 
-    /* Use a slightly translucent blue-ish tint for water with coolant color */
-    lv_color_t water_color = coolant_ok ?
-        lv_color_make(60, 140, 255) :     /* Blue water when OK */
-        lv_color_make(255, 80, 80);       /* Red warning water when low */
+    /* Use blue for water always — the low level itself indicates the warning */
+    lv_color_t water_color = lv_color_make(60, 140, 255);
     water_dsc.color = water_color;
 
     for (int y = water_top; y <= water_bot; y += 3) {
@@ -433,16 +538,20 @@ void cooling_init(void)
 {
     ESP_LOGI(TAG, "Initializing cooling gauge");
 
-    /* Reset state */
+    /* Reset state (wading_mode preserved — it persists until long-press clears it) */
     fan_low_angle  = 0;
     fan_high_angle = 0;
-    wading_mode    = false;
     fan_low_active = false;
     fan_high_active = false;
     coolant_ok     = true;
 
     /* Draw the gauge face */
     draw_gauge_face();
+
+    /* If wading was already active, show the wading label */
+    if (wading_mode && wading_label) {
+        lv_obj_clear_flag(wading_label, LV_OBJ_FLAG_HIDDEN);
+    }
 
     /* Start rotation animation timer */
     fan_anim_timer = lv_timer_create(fan_anim_timer_cb, FAN_ROTATE_PERIOD_MS, NULL);
@@ -459,11 +568,10 @@ void cooling_update(void)
     /* Read expansion board inputs */
     bool new_fan_low  = exbd_get_input(EXBD_INPUT_FAN_LOW);
     bool new_fan_high = exbd_get_input(EXBD_INPUT_FAN_HIGH);
-    bool new_coolant  = exbd_get_input(EXBD_INPUT_COOLANT_LO);
 
-    /* Note: COOLANT_LO input is active-high when coolant is LOW (alarm).
-       So coolant_ok = !new_coolant (invert the alarm signal). */
-    bool new_coolant_ok = !new_coolant;
+    /* Coolant filter runs in cooling_alarm_active() every main loop iteration,
+       so just read the confirmed state here for display. */
+    bool new_coolant_ok = !coolant_confirmed_low;
 
     bool changed = (new_fan_low  != fan_low_active) ||
                    (new_fan_high != fan_high_active) ||
@@ -533,14 +641,9 @@ void cooling_cleanup(void)
         fan_anim_timer = NULL;
     }
 
-    /* If wading mode was active, turn off OUT1 */
-    if (wading_mode) {
-        wading_mode = false;
-        if (exbd_has_io()) {
-            mcp23017_write_pin('A', 0, false);
-            ESP_LOGI(TAG, "Wading mode OFF (gauge cleanup) — OUT1 deactivated");
-        }
-    }
+    /* NOTE: wading mode intentionally NOT cleared here.
+       Wading persists until explicitly toggled off by long-press.
+       OUT1 remains active. */
 
     /* Delete all LVGL objects */
     if (gauge_container) {
@@ -558,6 +661,13 @@ void cooling_cleanup(void)
     title_label   = NULL;
 
     is_visible = false;
+
+    /* Reset coolant filter state */
+    coolant_low_accum_ms  = 0;
+    coolant_ok_accum_ms   = 0;
+    coolant_confirmed_low = false;
+    coolant_last_update_ms = 0;
+
     ESP_LOGI(TAG, "Cooling gauge cleaned up");
 }
 
@@ -602,11 +712,19 @@ void cooling_toggle_wading(void)
 bool cooling_alarm_active(void)
 {
     if (!exbd_has_io()) return false;
+
+    /* Run the coolant filter even when the gauge isn't visible,
+       so the alarm system can detect confirmed-low from any gauge. */
+    bool raw_coolant_low = exbd_get_input(EXBD_INPUT_COOLANT_LO);
+    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    uint32_t dt_ms = (coolant_last_update_ms > 0) ? (now_ms - coolant_last_update_ms) : 100;
+    coolant_last_update_ms = now_ms;
+    coolant_filter_update(raw_coolant_low, dt_ms);
+
     bool fl = exbd_get_input(EXBD_INPUT_FAN_LOW);
-    bool cl = exbd_get_input(EXBD_INPUT_COOLANT_LO);
     /* FanHigh alone = aircon, not a cooling alarm.
-       Only trigger when FanLow is on (real cooling) or coolant is low. */
-    return (fl || cl);
+       Only trigger when FanLow is on (real cooling) or coolant confirmed low. */
+    return (fl || coolant_confirmed_low);
 }
 
 bool cooling_get_wading(void)
