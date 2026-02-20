@@ -119,6 +119,11 @@ static bool ignition_on = true;        // Assume ON at boot (display starts acti
 static bool system_sleeping = false;   // True when in low-power standby mode
 #define FORCE_IGNITION_ON  0           // TEMP: set to 1 to bypass ignition detection
 
+// Temporary wake: select button or screen touch wakes display for 5 min with ignition off
+#define TEMP_WAKE_DURATION_MS  (5 * 60 * 1000)  // 5 minutes
+static bool     temp_wake_active = false;   // Currently in temporary wake mode
+static uint32_t temp_wake_start  = 0;       // Timestamp when temp wake began
+
 // Forward declarations
 void switch_gauge(gauge_type_t new_gauge);
 void set_all_gauges_night_mode(bool night_mode);
@@ -376,6 +381,7 @@ static bool     select_long_fired = false; // Long-press already fired this hold
 static void process_select_tap(void)
 {
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    if (temp_wake_active) temp_wake_start = now;  // Extend temp wake on activity
     if (select_tap_pending && (now - select_tap_time) <= DOUBLE_TAP_WINDOW_MS) {
         /* Second tap within window — double-tap → jump to clock */
         select_tap_pending = false;
@@ -491,6 +497,8 @@ static void touch_event_handler(lv_event_t * e)
             if (current_gauge == GAUGE_COOLING) {
                 ESP_LOGW("MAIN", "Touch long-press — toggle wading");
                 cooling_toggle_wading();
+            } else {
+                handle_select_action();
             }
         } else {
             // ESP_LOGD("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
@@ -516,6 +524,7 @@ static void handle_next_gauge_input(void)
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     manual_switch_time = now;
     last_activity_time = now;  // Reset inactivity timer
+    if (temp_wake_active) temp_wake_start = now;  // Extend temp wake on activity
 
     // Cancel alarm auto-return — user chose to navigate away
     alarm_auto_switched = false;
@@ -545,6 +554,7 @@ static void handle_prev_gauge_input(void)
     uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
     manual_switch_time = now;
     last_activity_time = now;
+    if (temp_wake_active) temp_wake_start = now;  // Extend temp wake on activity
 
     // Cancel alarm auto-return — user chose to navigate away
     alarm_auto_switched = false;
@@ -952,11 +962,47 @@ void app_main(void)
             }
         }
         
-        // While in standby, skip all gauge/input processing — just poll slowly
+        // While in standby, check for select button or screen touch to temp-wake
         if (system_sleeping) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-            lv_timer_handler();  // Keep LVGL tick alive (minimal)
-            continue;
+            bool wake_trigger = false;
+
+            // Check select button (expansion board)
+            if (expansion_board_detected() && exbd_select_pressed()) {
+                wake_trigger = true;
+            }
+
+            // Check screen touch (GPIO4 goes LOW on touch)
+            if (touch_available && gpio_get_level(I2C_Touch_INT_IO) == 0) {
+                wake_trigger = true;
+            }
+
+            if (wake_trigger) {
+                ESP_LOGW("MAIN", "Standby wake — display active for %d min",
+                         TEMP_WAKE_DURATION_MS / 60000);
+                temp_wake_active = true;
+                temp_wake_start = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                exit_standby_mode();
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                lv_timer_handler();  // Keep LVGL tick alive (minimal)
+                continue;
+            }
+        }
+
+        // Check temp-wake timeout — go back to standby if ignition still off
+        if (temp_wake_active) {
+            uint32_t elapsed = (xTaskGetTickCount() * portTICK_PERIOD_MS) - temp_wake_start;
+            if (ignition_on) {
+                // Ignition came on during temp wake — cancel temp wake, stay active
+                temp_wake_active = false;
+                ESP_LOGW("MAIN", "Ignition ON during temp wake — staying active");
+            } else if (elapsed >= TEMP_WAKE_DURATION_MS) {
+                ESP_LOGW("MAIN", "Temp wake expired (%d min) — returning to standby",
+                         TEMP_WAKE_DURATION_MS / 60000);
+                temp_wake_active = false;
+                enter_standby_mode();
+                continue;
+            }
         }
         
         // Check for button press (GPIO0 boot button or GPIO43 next)
@@ -1000,6 +1046,8 @@ void app_main(void)
                     if (current_gauge == GAUGE_COOLING) {
                         ESP_LOGW("MAIN", "Select long-press — toggle wading");
                         cooling_toggle_wading();
+                    } else {
+                        handle_select_action();
                     }
                 }
             } else if (!btn_now && select_held) {
