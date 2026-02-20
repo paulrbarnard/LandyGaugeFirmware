@@ -355,6 +355,54 @@ static void handle_select_action(void)
     }
 }
 
+// Double-tap select → jump to clock gauge
+// First tap is deferred; if second tap arrives within window → clock.
+// If window expires without second tap → fire gauge-specific action.
+#define DOUBLE_TAP_WINDOW_MS  400   // Max interval between taps to count as double-tap
+static uint32_t select_tap_time = 0;     // Timestamp of the pending first tap (0 = none)
+static bool     select_tap_pending = false;
+
+/**
+ * @brief Called when select button is pressed (or touch center long-pressed).
+ * Records the tap; on second tap within window → jump to clock.
+ */
+static void process_select_tap(void)
+{
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    if (select_tap_pending && (now - select_tap_time) <= DOUBLE_TAP_WINDOW_MS) {
+        /* Second tap within window — double-tap → jump to clock */
+        select_tap_pending = false;
+        select_tap_time = 0;
+        if (current_gauge != GAUGE_CLOCK) {
+            ESP_LOGW("MAIN", "Double-tap select — jumping to clock");
+            manual_switch_time = now;
+            alarm_auto_switched = false;
+            switch_gauge(GAUGE_CLOCK);
+        }
+    } else {
+        /* First tap — defer action, wait for possible second tap */
+        select_tap_pending = true;
+        select_tap_time = now;
+        ESP_LOGI("MAIN", "Select tap — waiting for double-tap...");
+    }
+}
+
+/**
+ * @brief Check if deferred single-tap has expired (call from main loop).
+ * Fires the gauge-specific action when the double-tap window passes.
+ */
+static void check_select_tap_timeout(void)
+{
+    if (!select_tap_pending) return;
+    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    if ((now - select_tap_time) > DOUBLE_TAP_WINDOW_MS) {
+        select_tap_pending = false;
+        select_tap_time = 0;
+        ESP_LOGI("MAIN", "Single tap confirmed — executing select action");
+        handle_select_action();
+    }
+}
+
 // Touch zones: left/right edges for navigation, center circle for long-press select.
 // The center zone (100px radius) is excluded from left/right taps to prevent overlap.
 #define TOUCH_CENTER_RADIUS  100
@@ -402,9 +450,10 @@ static void touch_event_handler(lv_event_t * e)
             return;
         }
 
-        /* Ignore taps in the center zone — reserved for long press */
+        /* Center zone: route through double-tap detector */
         if (touch_in_center(&point)) {
-            ESP_LOGI("MAIN", "Tap ignored (%d,%d) — center zone", point.x, point.y);
+            ESP_LOGI("MAIN", "Touch center tap (%d,%d) — select/double-tap", point.x, point.y);
+            process_select_tap();
             return;
         }
 
@@ -427,7 +476,7 @@ static void touch_event_handler(lv_event_t * e)
 
         if (touch_in_center(&point)) {
             ESP_LOGI("MAIN", "Long press center (%d,%d) — select action", point.x, point.y);
-            handle_select_action();
+            process_select_tap();
         } else {
             ESP_LOGI("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
         }
@@ -900,10 +949,13 @@ void app_main(void)
             handle_prev_gauge_input();
         }
         
-        // Check expansion board select button — gauge-specific actions
+        // Check expansion board select button — single tap = action, double tap = clock
         if (expansion_board_detected() && exbd_select_pressed()) {
-            handle_select_action();
+            process_select_tap();
         }
+        
+        // Check if deferred single-tap expired (fires gauge action after 400ms)
+        check_select_tap_timeout();
         
         // Night mode handling:
         // With expansion board: follow lights input

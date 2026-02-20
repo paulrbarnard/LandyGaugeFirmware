@@ -460,6 +460,7 @@ void cooling_update(void)
     bool new_fan_low  = exbd_get_input(EXBD_INPUT_FAN_LOW);
     bool new_fan_high = exbd_get_input(EXBD_INPUT_FAN_HIGH);
     bool new_coolant  = exbd_get_input(EXBD_INPUT_COOLANT_LO);
+
     /* Note: COOLANT_LO input is active-high when coolant is LOW (alarm).
        So coolant_ok = !new_coolant (invert the alarm signal). */
     bool new_coolant_ok = !new_coolant;
@@ -602,9 +603,10 @@ bool cooling_alarm_active(void)
 {
     if (!exbd_has_io()) return false;
     bool fl = exbd_get_input(EXBD_INPUT_FAN_LOW);
-    bool fh = exbd_get_input(EXBD_INPUT_FAN_HIGH);
     bool cl = exbd_get_input(EXBD_INPUT_COOLANT_LO);
-    return (fl || fh || cl);
+    /* FanHigh alone = aircon, not a cooling alarm.
+       Only trigger when FanLow is on (real cooling) or coolant is low. */
+    return (fl || cl);
 }
 
 bool cooling_get_wading(void)

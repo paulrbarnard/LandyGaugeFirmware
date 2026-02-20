@@ -71,8 +71,8 @@ static const char *input_names[EXBD_INPUT_COUNT] = {
     [EXBD_INPUT_LIGHTS]     = "Lights",
     [EXBD_INPUT_FAN_LOW]    = "Fan Low",
     [EXBD_INPUT_FAN_HIGH]   = "Fan High",
+    [EXBD_INPUT_SPARE_5]    = "Spare 5",
     [EXBD_INPUT_COOLANT_LO] = "Coolant Low",
-    [EXBD_INPUT_SPARE_6]    = "Spare 6",
     [EXBD_INPUT_SPARE_7]    = "Spare 7",
 };
 

@@ -43,9 +43,9 @@ typedef enum {
     EXBD_INPUT_LIGHTS     = 2,  // IO2 - Lights on
     EXBD_INPUT_FAN_LOW    = 3,  // IO3 - Fan low speed
     EXBD_INPUT_FAN_HIGH   = 4,  // IO4 - Fan high speed
-    EXBD_INPUT_COOLANT_LO = 5,  // IO5 - Coolant low warning
-    EXBD_INPUT_SPARE_6    = 6,  // IO6 - Spare
-    EXBD_INPUT_SPARE_7    = 7,  // IO7 - Spare
+    EXBD_INPUT_SPARE_5    = 5,  // IO5 - Spare (faulty opto)
+    EXBD_INPUT_COOLANT_LO = 6,  // IO6 - Coolant low warning
+    EXBD_INPUT_SPARE_7    = 7,  // IO7 - Spare (faulty opto)
     EXBD_INPUT_COUNT      = 8,
 } exbd_input_t;
 
