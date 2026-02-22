@@ -26,8 +26,8 @@
 
 static const char *TAG = "WIFI_NTP";
 
-// WiFi credentials
-#define WIFI_SSID "Barnard Home Network"
+// WiFi credentials (iPhone hotspot uses Unicode RIGHT SINGLE QUOTATION MARK U+2019)
+#define WIFI_SSID "Paul\xe2\x80\x99s iPhone"
 #define WIFI_PASS "0D03908CE5"
 
 // Timing
@@ -263,6 +263,18 @@ void wifi_ntp_start(void)
         return;  // already logged inside cooldown_active()
     }
 
+    s_task_running = true;
+    xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 4096, NULL, 3, NULL, 0);
+}
+
+void wifi_ntp_force_start(void)
+{
+    if (s_task_running) {
+        ESP_LOGW(TAG, "Sync already in progress — ignoring");
+        return;
+    }
+    // Bypass cooldown — user explicitly requested a sync
+    ESP_LOGI(TAG, "Force NTP sync requested (bypassing cooldown)");
     s_task_running = true;
     xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 4096, NULL, 3, NULL, 0);
 }

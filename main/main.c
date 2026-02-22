@@ -375,6 +375,14 @@ static void handle_select_action(void)
             ESP_LOGD("MAIN", "Select: toggle EGT units");
             egt_toggle_units();
             break;
+        case GAUGE_CLOCK:
+            ESP_LOGD("MAIN", "Select: force NTP sync");
+            wifi_ntp_force_start();
+            break;
+        case GAUGE_TILT:
+            ESP_LOGD("MAIN", "Select: tilt zero-offset");
+            tilt_zero_offset();
+            break;
         case GAUGE_COOLING:
             ESP_LOGD("MAIN", "Select: cooling (long-press for wading)");
             // Wading toggle moved to long-press — single tap does nothing on cooling
@@ -684,8 +692,7 @@ static void exit_standby_mode(void)
         create_touch_overlay();
     }
     
-    // 4. Restart WiFi NTP sync (respects 24 h cooldown, auto-shuts down)
-    wifi_ntp_start();
+    // WiFi NTP sync is now triggered manually via long-press on clock gauge
     
     // 5. Resume BLE scanning
     ble_tpms_start_scan();
@@ -933,9 +940,8 @@ void app_main(void)
     // Other gauges will be initialized on-demand when switching
     
     // Initialize WiFi NTP (registers handlers, stops WiFi until needed)
+    // Sync is triggered manually via long-press on clock gauge
     wifi_ntp_init();
-    // Kick off non-blocking NTP sync (respects 24 h cooldown)
-    wifi_ntp_start();
     
     // Initialize BLE TPMS (using NimBLE - lighter weight than Bluedroid)
     if (ble_tpms_init() == ESP_OK) {

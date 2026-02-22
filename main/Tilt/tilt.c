@@ -9,6 +9,8 @@
 #include "lvgl.h"
 #include "LVGL_Driver/style.h"
 #include "WarningBeep/warning_beep.h"
+#include "Settings/settings.h"
+#include "IMU/imu_attitude.h"
 #include "esp_log.h"
 #include <math.h>
 #include <stdio.h>
@@ -37,6 +39,9 @@ static bool night_mode = false;
 
 // Current tilt angle (scales rotate by this amount)
 static float current_tilt_angle = 0.0f;
+
+// Zero-offset: subtracted from raw IMU angle so current position reads 0°
+static float tilt_offset = 0.0f;
 
 // Scale line color (follows accent color or warning color)
 static lv_color_t scale_line_color;
@@ -413,15 +418,35 @@ void tilt_set_visible(bool visible) {
    Prevents constant invalidation from starving LVGL input processing. */
 #define TILT_REDRAW_THRESHOLD  1.0f
 
+void tilt_zero_offset(void) {
+    // Remove any previous offset so imu_get_roll() is read against true zero
+    tilt_offset = 0.0f;
+    // Capture the current raw angle as the new zero reference
+    tilt_offset = imu_get_roll();
+    ESP_LOGI(TAG, "Tilt zeroed: offset = %.1f°", tilt_offset);
+    settings_save_tilt_offset(tilt_offset);
+    // Force immediate redraw at 0°
+    current_tilt_angle = 999.0f;  // ensure threshold triggers
+    tilt_set_angle(imu_get_roll());
+}
+
+void tilt_set_offset(float offset_deg) {
+    tilt_offset = offset_deg;
+    ESP_LOGI(TAG, "Tilt offset restored: %.1f°", tilt_offset);
+}
+
 void tilt_set_angle(float angle_degrees) {
+    // Apply zero-offset so calibrated position reads 0°
+    float corrected = angle_degrees - tilt_offset;
+
     // Skip redraw if the angle hasn't changed enough
-    float delta = fabsf(angle_degrees - current_tilt_angle);
+    float delta = fabsf(corrected - current_tilt_angle);
     if (delta < TILT_REDRAW_THRESHOLD) {
         return;  // No meaningful change — don't invalidate
     }
 
     // Update the stored tilt angle
-    current_tilt_angle = angle_degrees;
+    current_tilt_angle = corrected;
     
     // Calculate warning level based on absolute tilt
     float abs_tilt = fabsf(current_tilt_angle);

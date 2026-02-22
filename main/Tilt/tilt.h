@@ -27,6 +27,20 @@ void tilt_set_angle(float angle_degrees);
 void tilt_set_night_mode(bool night);
 
 /**
+ * @brief Zero the tilt gauge at the current angle
+ *
+ * Captures the current IMU roll as the zero-offset and saves it to NVS.
+ * After this call the current physical orientation will read 0°.
+ */
+void tilt_zero_offset(void);
+
+/**
+ * @brief Set the tilt zero-offset directly (used when restoring from NVS)
+ * @param offset_deg  The offset angle in degrees
+ */
+void tilt_set_offset(float offset_deg);
+
+/**
  * @brief Clean up tilt gauge resources
  */
 void tilt_cleanup(void);

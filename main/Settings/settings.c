@@ -11,6 +11,7 @@
 #include "Boost/boost.h"
 #include "TirePressure/tire_pressure.h"
 #include "EGT/egt.h"
+#include "Tilt/tilt.h"
 
 static const char *TAG = "SETTINGS";
 
@@ -26,6 +27,7 @@ static const char *TAG = "SETTINGS";
 #define KEY_TPMS_BAR   "tpms_bar"    /* uint8  DEPRECATED - old bool key   */
 #define KEY_TPMS_MODE  "tpms_mode"   /* uint8  0=BAR°C 1=PSI°C 2=BAR°F 3=PSI°F */
 #define KEY_EGT_CEL    "egt_celsius"  /* uint8  1=°C 0=°F                    */
+#define KEY_TILT_OFF   "tilt_offset"  /* int32  tilt zero-offset * 100       */
 
 /*******************************************************************************
  * Helpers
@@ -100,6 +102,14 @@ esp_err_t settings_load(void)
         egt_set_units_celsius(val != 0);
         ESP_LOGI(TAG, "EGT units restored: %s", val ? "°C" : "°F");
     }
+
+    /* ── Tilt zero-offset ─────────────────────────────────────────────── */
+    int32_t toff100 = 0;
+    if (nvs_get_i32(h, KEY_TILT_OFF, &toff100) == ESP_OK) {
+        tilt_set_offset((float)toff100 / 100.0f);
+        ESP_LOGI(TAG, "Tilt offset restored: %.1f°", (float)toff100 / 100.0f);
+    }
+
     nvs_close(h);
     return ESP_OK;
 }
@@ -171,4 +181,17 @@ void settings_save_egt_units(bool use_celsius)
     nvs_close(h);
 
     ESP_LOGD(TAG, "EGT units saved: %s", use_celsius ? "°C" : "°F");
+}
+
+void settings_save_tilt_offset(float offset_deg)
+{
+    nvs_handle_t h = open_nvs(NVS_READWRITE);
+    if (!h) return;
+
+    int32_t toff100 = (int32_t)(offset_deg * 100.0f);
+    nvs_set_i32(h, KEY_TILT_OFF, toff100);
+    nvs_commit(h);
+    nvs_close(h);
+
+    ESP_LOGD(TAG, "Tilt offset saved: %.1f°", offset_deg);
 }

@@ -44,6 +44,14 @@ bool wifi_ntp_init(void);
 void wifi_ntp_start(void);
 
 /**
+ * @brief Force-start WiFi → NTP sync, bypassing the 24-hour cooldown.
+ *
+ * Use when the user explicitly requests a time sync (e.g. long-press on clock).
+ * Still ignored if a sync is already in progress.
+ */
+void wifi_ntp_force_start(void);
+
+/**
  * @brief Force-stop any in-progress WiFi/NTP activity and shut down WiFi.
  *
  * Called when ignition turns OFF while a sync is still running.

@@ -60,6 +60,12 @@ void settings_save_tpms_mode(uint8_t mode);
  */
 void settings_save_egt_units(bool use_celsius);
 
+/**
+ * @brief Save tilt gauge zero-offset to NVS
+ * @param offset_deg  The zero-offset angle in degrees
+ */
+void settings_save_tilt_offset(float offset_deg);
+
 #ifdef __cplusplus
 }
 #endif
