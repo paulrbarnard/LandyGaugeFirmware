@@ -114,6 +114,30 @@ static volatile gauge_type_t pending_switch = GAUGE_COUNT;  // GAUGE_COUNT = no 
 #define KPA_TO_PSI              0.145038f
 static bool map_adc_configured = false;  // Track if PGA/DR set for MAP reading
 
+// Coolant temperature sender on ADS1115 AIN1
+// Land Rover NTC sender via high-impedance conditioning circuit:
+//   TEMP_SIG → BAV99 clamp → R25(1M) to 3.3V / R27(330K) to GND / C1(100n) → AIN1
+// Linear approximation:  T ≈ 50 + (1.88 − V) / (1.88 − 0.68) × 70
+//   0.68V → 120°C,  1.88V → 50°C
+#define TEMP_ADC_CHANNEL        1       // AIN1
+#define TEMP_V_COLD             1.88f   // Voltage at cold end (50°C)
+#define TEMP_V_HOT              0.68f   // Voltage at hot end (120°C)
+#define TEMP_C_COLD             50.0f   // Temperature at cold end
+#define TEMP_C_HOT              120.0f  // Temperature at hot end
+static bool temp_adc_configured = false;
+
+/**
+ * @brief Convert AIN1 voltage to temperature (linear).
+ *        T = 50 + (1.88 − V) / 1.2 × 70
+ */
+static float coolant_voltage_to_temp(float v)
+{
+    float t = TEMP_C_COLD
+            + (TEMP_V_COLD - v) / (TEMP_V_COLD - TEMP_V_HOT)
+            * (TEMP_C_HOT - TEMP_C_COLD);
+    return t;
+}
+
 // Ignition state tracking
 static bool ignition_on = true;        // Assume ON at boot (display starts active)
 static bool system_sleeping = false;   // True when in low-power standby mode
@@ -364,7 +388,7 @@ static void handle_select_action(void)
 // Double-tap select → jump to clock gauge
 // First tap is deferred; if second tap arrives within window → clock.
 // If window expires without second tap → fire gauge-specific action.
-#define DOUBLE_TAP_WINDOW_MS  400   // Max interval between taps to count as double-tap
+#define DOUBLE_TAP_WINDOW_MS  1000  // Max interval between taps to count as double-tap
 static uint32_t select_tap_time = 0;     // Timestamp of the pending first tap (0 = none)
 static bool     select_tap_pending = false;
 
@@ -411,8 +435,9 @@ static void check_select_tap_timeout(void)
     if ((now - select_tap_time) > DOUBLE_TAP_WINDOW_MS) {
         select_tap_pending = false;
         select_tap_time = 0;
-        ESP_LOGD("MAIN", "Single tap confirmed — executing select action");
-        handle_select_action();
+        /* Single tap expired without a second tap — discard silently.
+           Settings changes only happen via deliberate long-press (2s). */
+        ESP_LOGD("MAIN", "Single tap expired — discarded (use long-press for settings)");
     }
 }
 
@@ -493,6 +518,8 @@ static void touch_event_handler(lv_event_t * e)
             // Cancel any pending single/double tap
             select_tap_pending = false;
             select_tap_time = 0;
+            // Consume press so SHORT_CLICKED won't also fire for this touch
+            touch_press_valid = false;
             // Fire long-press action (same as select button long-press)
             if (current_gauge == GAUGE_COOLING) {
                 ESP_LOGW("MAIN", "Touch long-press — toggle wading");
@@ -663,8 +690,9 @@ static void exit_standby_mode(void)
     // 5. Resume BLE scanning
     ble_tpms_start_scan();
     
-    // 6. Reset ADC config flag (will reconfigure when boost gauge shown)
+    // 6. Reset ADC config flags (will reconfigure when gauge shown)
     map_adc_configured = false;
+    temp_adc_configured = false;
     
     // 7. Reset activity timestamp
     last_activity_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -885,6 +913,11 @@ void app_main(void)
         ESP_LOGI("MAIN", "No touch screen detected - button-only mode");
     }
     
+    // Suppress internal I2C driver NACK error logs — the touch controller
+    // generates expected NACKs during polling when no touch is active, and
+    // absent devices (MCP9600) also cause harmless NACK noise.
+    esp_log_level_set("i2c.master", ESP_LOG_NONE);
+    
     LCD_Init();
     Audio_Init();
     warning_beep_init();  // Initialize beep system early (before any gauge)
@@ -1103,6 +1136,7 @@ void app_main(void)
                 ads1115_set_gain(ADS1115_PGA_2048);    // ±2.048V for 0-2V divider output
                 ads1115_set_data_rate(ADS1115_DR_860SPS); // Fast conversion (~2ms)
                 map_adc_configured = true;
+                temp_adc_configured = false;  // Force coolant temp to reconfigure if shown later
                 ESP_LOGI("MAIN", "MAP ADC configured: ±2.048V, 860 SPS");
             }
 
@@ -1179,6 +1213,33 @@ void app_main(void)
             if ((cool_now - last_cooling_ms) >= 100) {  // ~10 Hz
                 last_cooling_ms = cool_now;
                 cooling_update();
+            }
+        }
+
+        // Read coolant temperature from ADS1115 AIN1 (~2 Hz, always when not on boost)
+        // Runs even when not on cooling gauge so overtemp alarm can trigger auto-switch.
+        // Skipped while boost gauge is active (different ADC gain).
+        if (expansion_board_detected() && current_gauge != GAUGE_BOOST) {
+            static uint32_t last_temp_ms = 0;
+            uint32_t temp_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((temp_now - last_temp_ms) >= 500) {  // ~2 Hz — temp changes slowly
+                last_temp_ms = temp_now;
+                if (!temp_adc_configured) {
+                    ads1115_set_gain(ADS1115_PGA_4096);      // ±4.096V for 0-3.3V sender range
+                    ads1115_set_data_rate(ADS1115_DR_128SPS); // 128 SPS — plenty for slow temp
+                    temp_adc_configured = true;
+                    map_adc_configured = false;  // Force boost to reconfigure if shown later
+                    ESP_LOGI("MAIN", "Coolant temp ADC configured: ±4.096V, 128 SPS");
+                }
+                float voltage = 0.0f;
+                if (ads1115_read_single(TEMP_ADC_CHANNEL, &voltage) == ESP_OK) {
+                    float temp_c = coolant_voltage_to_temp(voltage);
+                    static int temp_log_ctr = 0;
+                    if ((temp_log_ctr++ % 10) == 0) {  // Log every ~5s
+                        ESP_LOGI("COOLANT", "AIN1=%.3fV → %.1f°C", voltage, temp_c);
+                    }
+                    cooling_set_coolant_temp(temp_c);
+                }
             }
         }
 

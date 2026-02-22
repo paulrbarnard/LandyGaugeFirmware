@@ -166,6 +166,8 @@ void LVGL_Init(void)
         indev_drv.type = LV_INDEV_TYPE_POINTER;
         indev_drv.disp = disp;
         indev_drv.read_cb = example_touchpad_read;
+        indev_drv.long_press_time = 2000;           // 2s — well clear of double-tap window
+        indev_drv.long_press_repeat_time = 0;       // disable repeat
         lv_indev_drv_register( &indev_drv );
         ESP_LOGI(TAG_LVGL, "Touch input device registered");
     } else {

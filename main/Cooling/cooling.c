@@ -141,6 +141,13 @@ static bool fan_low_active  = false;
 static bool fan_high_active = false;
 static bool coolant_ok      = true;   /* true = level OK (IN5 high), false = low */
 
+/* ── Coolant temperature overtemp tracking ───────────────────────────── */
+#define COOLANT_TEMP_HIDE_C      60.0f   /* Hide reading at or below this */
+#define COOLANT_TEMP_WARN_C     110.0f   /* Yellow warning threshold */
+#define COOLANT_TEMP_DANGER_C   115.0f   /* Red danger + MP3 + alarm */
+static bool coolant_overtemp = false;    /* true when ≥ DANGER threshold */
+static bool overheat_mp3_played = false; /* one-shot MP3 flag */
+
 /* ── Fan rotation animation ─────────────────────────────────────────── */
 #define FAN_ROTATE_PERIOD_MS   30     /* Timer period for smooth rotation */
 #define FAN_ROTATE_STEP_DEG    8      /* Degrees per tick — 8° × 33Hz ≈ 267°/s */
@@ -166,6 +173,9 @@ static lv_obj_t *coolant_obj = NULL;       /* Bottom sector radiator icon */
 
 /* Wading mode indicator */
 static lv_obj_t *wading_label = NULL;      /* "WADING" text (shown when active) */
+
+/* Coolant temperature from analogue sender */
+static lv_obj_t *coolant_temp_label = NULL; /* e.g. "85°C" overlaid on radiator */
 
 /* Title */
 static lv_obj_t *title_label = NULL;       /* "COOLING" title */
@@ -521,6 +531,13 @@ static void draw_gauge_face(void)
     lv_obj_set_style_pad_all(coolant_obj, 0, 0);
     lv_obj_add_event_cb(coolant_obj, coolant_draw_cb, LV_EVENT_DRAW_MAIN_END, NULL);
 
+    /* ── Coolant temperature label (overlaid on radiator) ─────────────── */
+    coolant_temp_label = lv_label_create(gauge_container);
+    lv_label_set_text(coolant_temp_label, "--\u00B0C");  /* "--°C" until first reading */
+    lv_obj_set_style_text_color(coolant_temp_label, accent, 0);
+    lv_obj_set_style_text_font(coolant_temp_label, &lv_font_montserrat_32, 0);
+    lv_obj_align(coolant_temp_label, LV_ALIGN_BOTTOM_MID, 0, -75);
+
     /* ── Wading mode label (hidden initially) ────────────────────────── */
     wading_label = lv_label_create(gauge_container);
     lv_label_set_text(wading_label, "WADING");
@@ -569,8 +586,14 @@ void cooling_update(void)
     bool new_fan_low  = exbd_get_input(EXBD_INPUT_FAN_LOW);
     bool new_fan_high = exbd_get_input(EXBD_INPUT_FAN_HIGH);
 
-    /* Coolant filter runs in cooling_alarm_active() every main loop iteration,
-       so just read the confirmed state here for display. */
+    /* Run coolant filter here too — cooling_alarm_active() is skipped by the
+       alarm system when we're already on the cooling gauge. */
+    bool raw_coolant_low = exbd_get_input(EXBD_INPUT_COOLANT_LO);
+    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    uint32_t dt_ms = (coolant_last_update_ms > 0) ? (now_ms - coolant_last_update_ms) : 100;
+    coolant_last_update_ms = now_ms;
+    coolant_filter_update(raw_coolant_low, dt_ms);
+
     bool new_coolant_ok = !coolant_confirmed_low;
 
     bool changed = (new_fan_low  != fan_low_active) ||
@@ -612,6 +635,9 @@ void cooling_set_night_mode(bool night)
         get_fan_color(fan_low_active, wading_mode), 0);
     if (fan_high_label)  lv_obj_set_style_text_color(fan_high_label,
         get_fan_color(fan_high_active, wading_mode), 0);
+
+    /* Update coolant temperature label color */
+    if (coolant_temp_label) lv_obj_set_style_text_color(coolant_temp_label, accent, 0);
 
     /* Force redraw of custom-drawn icons */
     if (fan_low_obj)  lv_obj_invalidate(fan_low_obj);
@@ -657,6 +683,7 @@ void cooling_cleanup(void)
     fan_low_label = NULL;
     fan_high_label = NULL;
     coolant_obj   = NULL;
+    coolant_temp_label = NULL;
     wading_label  = NULL;
     title_label   = NULL;
 
@@ -723,11 +750,56 @@ bool cooling_alarm_active(void)
 
     bool fl = exbd_get_input(EXBD_INPUT_FAN_LOW);
     /* FanHigh alone = aircon, not a cooling alarm.
-       Only trigger when FanLow is on (real cooling) or coolant confirmed low. */
-    return (fl || coolant_confirmed_low);
+       Only trigger when FanLow is on (real cooling) or coolant confirmed low
+       or coolant temperature has reached danger threshold. */
+    return (fl || coolant_confirmed_low || coolant_overtemp);
 }
 
 bool cooling_get_wading(void)
 {
     return wading_mode;
+}
+
+void cooling_set_coolant_temp(float temp_c)
+{
+    /* ── Alarm logic runs even when gauge is not visible ─────────────── */
+    if (!isnan(temp_c) && temp_c >= COOLANT_TEMP_DANGER_C) {
+        coolant_overtemp = true;
+        if (!overheat_mp3_played) {
+            overheat_mp3_played = true;
+            Play_Music("/sdcard", "overheat.mp3");
+            ESP_LOGW("COOLING", "Coolant OVERTEMP %.0f°C — playing overheat.mp3", temp_c);
+        }
+    } else if (!isnan(temp_c) && temp_c < COOLANT_TEMP_DANGER_C) {
+        coolant_overtemp = false;
+        overheat_mp3_played = false;
+    }
+
+    /* ── Display update only when label exists (gauge visible) ──────── */
+    if (!coolant_temp_label) return;
+
+    /* Hide if invalid or ≤ 60°C */
+    if (isnan(temp_c) || temp_c <= COOLANT_TEMP_HIDE_C) {
+        lv_obj_add_flag(coolant_temp_label, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    /* Format and show */
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.0f\u00B0C", temp_c);
+    lv_label_set_text(coolant_temp_label, buf);
+    lv_obj_clear_flag(coolant_temp_label, LV_OBJ_FLAG_HIDDEN);
+
+    /* Color: accent (normal), yellow (≥110), red (≥115) */
+    lv_color_t color;
+    if (temp_c >= COOLANT_TEMP_DANGER_C) {
+        color = lv_color_make(255, 0, 0);       /* Red */
+    } else if (temp_c >= COOLANT_TEMP_WARN_C) {
+        color = lv_color_make(255, 200, 0);     /* Yellow */
+    } else {
+        color = get_accent_color(night_mode);   /* Normal */
+        coolant_overtemp = false;
+        overheat_mp3_played = false;
+    }
+    lv_obj_set_style_text_color(coolant_temp_label, color, 0);
 }

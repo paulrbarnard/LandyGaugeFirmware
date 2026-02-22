@@ -71,8 +71,8 @@ static const char *input_names[EXBD_INPUT_COUNT] = {
     [EXBD_INPUT_LIGHTS]     = "Lights",
     [EXBD_INPUT_FAN_LOW]    = "Fan Low",
     [EXBD_INPUT_FAN_HIGH]   = "Fan High",
-    [EXBD_INPUT_SPARE_5]    = "Spare 5",
     [EXBD_INPUT_COOLANT_LO] = "Coolant Low",
+    [EXBD_INPUT_SPARE_6]    = "Spare 6",
     [EXBD_INPUT_SPARE_7]    = "Spare 7",
 };
 
@@ -83,18 +83,11 @@ const char *exbd_input_name(exbd_input_t input)
 }
 
 /*******************************************************************************
- * Fast I2C probe (50ms timeout instead of 1000ms)
+ * Fast I2C probe (50ms timeout)
  ******************************************************************************/
-static bool i2c_probe(uint8_t addr)
+static bool i2c_probe_fast(uint8_t addr)
 {
-    // Just send START + addr + STOP with a short timeout
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(50));
-    i2c_cmd_link_delete(cmd);
-    return (ret == ESP_OK);
+    return (I2C_Probe(addr, 50) == ESP_OK);
 }
 
 /*******************************************************************************
@@ -210,7 +203,7 @@ esp_err_t expansion_board_init(void)
     memset(&debounce, 0, sizeof(debounce));
 
     // Initialize MCP23017 (I/O expander) — fast probe first to avoid 1s timeout
-    if (i2c_probe(MCP23017_I2C_ADDR) && mcp23017_init() == ESP_OK) {
+    if (i2c_probe_fast(MCP23017_I2C_ADDR) && mcp23017_init() == ESP_OK) {
         mcp23017_ok = true;
         board_detected = true;
         ESP_LOGI(TAG, "MCP23017 I/O expander: OK");
@@ -219,7 +212,7 @@ esp_err_t expansion_board_init(void)
     }
 
     // Initialize ADS1115 (ADC) — fast probe first
-    if (i2c_probe(ADS1115_I2C_ADDR) && ads1115_init() == ESP_OK) {
+    if (i2c_probe_fast(ADS1115_I2C_ADDR) && ads1115_init() == ESP_OK) {
         ads1115_ok = true;
         board_detected = true;
         ESP_LOGI(TAG, "ADS1115 ADC: OK");
@@ -228,7 +221,7 @@ esp_err_t expansion_board_init(void)
     }
 
     // Initialize LIS3MDL (magnetometer) — fast probe first
-    if (i2c_probe(LIS3MDL_I2C_ADDR) && lis3mdl_init() == ESP_OK) {
+    if (i2c_probe_fast(LIS3MDL_I2C_ADDR) && lis3mdl_init() == ESP_OK) {
         qmc5883l_ok = true;
         board_detected = true;
         ESP_LOGI(TAG, "LIS3MDL magnetometer: OK");
@@ -236,14 +229,50 @@ esp_err_t expansion_board_init(void)
         ESP_LOGW(TAG, "LIS3MDL magnetometer: NOT FOUND");
     }
 
-    // Initialize MCP9600 (thermocouple converter) — fast probe first
-    if (i2c_probe(MCP9600_I2C_ADDR) && mcp9600_init() == ESP_OK) {
+    // Initialize MCP9600 (thermocouple converter)
+    // MCP9600 has 200ms startup time, 60µs clock stretching, and max 100 kHz.
+    // Register a dedicated 100 kHz device handle before probing.
+    I2C_AddDeviceFreq(MCP9600_I2C_ADDR, 50000);
+
+    vTaskDelay(pdMS_TO_TICKS(500));  // Ensure MCP9600 has fully powered up
+
+    // Suppress internal I2C NACK error logs during probing (expected when device absent)
+    esp_log_level_set("i2c.master", ESP_LOG_WARN);
+
+    // Try probing with extended timeout (MCP9600 clock stretching)
+    bool mcp_found = false;
+    for (int attempt = 0; attempt < 3 && !mcp_found; attempt++) {
+        esp_err_t ret = I2C_Probe(MCP9600_I2C_ADDR, 200);
+        if (ret == ESP_OK) {
+            mcp_found = true;
+            ESP_LOGI(TAG, "MCP9600 responded at 0x%02X (attempt %d)", MCP9600_I2C_ADDR, attempt + 1);
+        } else {
+            ESP_LOGW(TAG, "MCP9600 probe attempt %d at 0x%02X: %s", attempt + 1, MCP9600_I2C_ADDR, esp_err_to_name(ret));
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+
+    if (mcp_found && mcp9600_init() == ESP_OK) {
         mcp9600_ok = true;
         board_detected = true;
-        ESP_LOGI(TAG, "MCP9600 thermocouple: OK");
+        ESP_LOGI(TAG, "MCP9600 thermocouple: OK (addr 0x%02X)", MCP9600_I2C_ADDR);
     } else {
-        ESP_LOGW(TAG, "MCP9600 thermocouple: NOT FOUND");
+        // Scan all valid MCP9600 addresses (0x60-0x67)
+        ESP_LOGW(TAG, "MCP9600 not at 0x%02X, scanning 0x60-0x67...", MCP9600_I2C_ADDR);
+        bool found_any = false;
+        for (uint8_t a = 0x60; a <= 0x67; a++) {
+            if (I2C_Probe(a, 200) == ESP_OK) {
+                ESP_LOGW(TAG, "  Device found at 0x%02X — update MCP9600_I2C_ADDR!", a);
+                found_any = true;
+            }
+        }
+        if (!found_any) {
+            ESP_LOGW(TAG, "MCP9600 thermocouple: NOT FOUND (0x60-0x67)");
+        }
     }
+
+    // Restore I2C log level
+    esp_log_level_set("i2c.master", ESP_LOG_ERROR);
 
     if (!board_detected) {
         ESP_LOGW(TAG, "No expansion board devices detected");

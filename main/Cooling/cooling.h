@@ -70,6 +70,12 @@ bool cooling_alarm_active(void);
  */
 bool cooling_get_wading(void);
 
+/**
+ * @brief Set the coolant temperature reading from the analogue sender
+ * @param temp_c Temperature in degrees Celsius (NAN to hide)
+ */
+void cooling_set_coolant_temp(float temp_c);
+
 #ifdef __cplusplus
 }
 #endif

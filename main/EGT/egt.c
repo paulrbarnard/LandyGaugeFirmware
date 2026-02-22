@@ -11,6 +11,7 @@
 #include "egt.h"
 #include "esp_log.h"
 #include "LVGL_Driver/style.h"
+#include "PCM5101.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -60,6 +61,10 @@ static float current_egt_c = 0.0f;
 
 /* ── Redraw threshold (°C) — avoids starving touch input ─────────── */
 #define EGT_REDRAW_THRESHOLD  1.0f
+
+/* ── MP3 one-shot flags for warning / danger alerts ──────────────── */
+static bool egt_warn_mp3_played  = false;   /* egtwar.mp3  at 680°C */
+static bool egt_danger_mp3_played = false;  /* egtdang.mp3 at 750°C */
 
 /* ── LVGL objects ────────────────────────────────────────────────────── */
 static lv_obj_t *gauge_container = NULL;
@@ -410,6 +415,25 @@ void egt_set_value(float temp_c)
 {
     if (temp_c < EGT_MIN_C) temp_c = EGT_MIN_C;
     if (temp_c > EGT_MAX_C) temp_c = EGT_MAX_C;
+
+    /* ── MP3 alerts (one-shot, reset when temp drops below threshold) ─ */
+    if (temp_c >= EGT_DANGER_C) {
+        if (!egt_danger_mp3_played) {
+            egt_danger_mp3_played = true;
+            Play_Music("/sdcard", "egtdang.mp3");
+            ESP_LOGW(TAG, "EGT DANGER %.0f°C — playing egtdang.mp3", temp_c);
+        }
+    } else if (temp_c >= EGT_WARNING_C) {
+        if (!egt_warn_mp3_played) {
+            egt_warn_mp3_played = true;
+            Play_Music("/sdcard", "egtwar.mp3");
+            ESP_LOGW(TAG, "EGT WARNING %.0f°C — playing egtwar.mp3", temp_c);
+        }
+        egt_danger_mp3_played = false;  /* Reset danger so it can re-trigger */
+    } else {
+        egt_warn_mp3_played = false;
+        egt_danger_mp3_played = false;
+    }
 
     /* Skip redraw if value hasn't changed enough */
     if (fabsf(temp_c - current_egt_c) < EGT_REDRAW_THRESHOLD) {

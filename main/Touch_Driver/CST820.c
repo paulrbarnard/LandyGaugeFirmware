@@ -10,6 +10,9 @@
 
 static const char *TAG = "cst820";
 
+static i2c_master_bus_handle_t touch_bus_handle = NULL;
+static i2c_master_dev_handle_t touch_dev_handle = NULL;
+
 
 static esp_err_t read_data(esp_lcd_touch_handle_t tp);
 static bool get_xy(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num);
@@ -96,7 +99,9 @@ static esp_err_t read_data(esp_lcd_touch_handle_t tp)
     assert(tp != NULL);
 
     uint8_t write_buf = 0x01;
-    i2c_master_write_to_device(I2C_TOUCH_NUM, DATA_START_REG, &write_buf, 1, 1000 / portTICK_PERIOD_MS);
+    if (touch_dev_handle) {
+        i2c_master_transmit(touch_dev_handle, &write_buf, 1, 1000 / portTICK_PERIOD_MS);
+    }
 
     touch_cst820_i2c_write(tp, 0xFE, &close, 1);
 
@@ -233,28 +238,30 @@ bool Touch_Init(void)
 {
     touch_available = false;  // Assume no touch until proven otherwise
     
-    // Initialize dedicated I2C bus for touch controller (GPIO1/3 per schematic)
-    i2c_config_t i2c_conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_TOUCH_SDA_IO,
+    // Initialize dedicated I2C master bus for touch controller (GPIO1/3 per schematic)
+    i2c_master_bus_config_t touch_bus_cfg = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port   = I2C_TOUCH_NUM,
         .scl_io_num = I2C_TOUCH_SCL_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_TOUCH_FREQ_HZ,
+        .sda_io_num = I2C_TOUCH_SDA_IO,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
     };
     
-    esp_err_t ret = i2c_param_config(I2C_TOUCH_NUM, &i2c_conf);
+    esp_err_t ret = i2c_new_master_bus(&touch_bus_cfg, &touch_bus_handle);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Touch I2C param config failed: %s - no touch controller", esp_err_to_name(ret));
-        return false;
-    }
-    
-    ret = i2c_driver_install(I2C_TOUCH_NUM, I2C_MODE_MASTER, 0, 0, 0);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Touch I2C driver install failed: %s - no touch controller", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "Touch I2C bus init failed: %s - no touch controller", esp_err_to_name(ret));
         return false;
     }
     ESP_LOGI(TAG, "Touch I2C bus initialized on GPIO%d(SDA)/GPIO%d(SCL)", I2C_TOUCH_SDA_IO, I2C_TOUCH_SCL_IO);
+    
+    // Create a raw device handle for the CST820 (used in read_data polling)
+    i2c_device_config_t touch_dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = ESP_LCD_TOUCH_IO_I2C_CST820_ADDRESS,
+        .scl_speed_hz    = I2C_TOUCH_FREQ_HZ,
+    };
+    i2c_master_bus_add_device(touch_bus_handle, &touch_dev_cfg, &touch_dev_handle);
     
     // Reset touch controller via EXIO1
     Set_EXIO(TCA9554_EXIO1, 0);  // Reset low
@@ -269,12 +276,15 @@ bool Touch_Init(void)
 
     esp_lcd_panel_io_handle_t tp_io_handle = NULL;
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_CST820_CONFIG();
+    tp_io_config.scl_speed_hz = I2C_TOUCH_FREQ_HZ;
     ESP_LOGI(TAG, "Initialize touch IO (I2C)");
     /* Touch IO handle */
-    ret = esp_lcd_new_panel_io_i2c((esp_lcd_i2c_bus_handle_t)I2C_TOUCH_NUM, &tp_io_config, &tp_io_handle);
+    ret = esp_lcd_new_panel_io_i2c(touch_bus_handle, &tp_io_config, &tp_io_handle);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Touch IO initialization failed: %s - no touch controller detected", esp_err_to_name(ret));
-        i2c_driver_delete(I2C_TOUCH_NUM);  // Clean up I2C
+        if (touch_dev_handle) { i2c_master_bus_rm_device(touch_dev_handle); touch_dev_handle = NULL; }
+        i2c_del_master_bus(touch_bus_handle);
+        touch_bus_handle = NULL;
         return false;
     }
     
@@ -295,7 +305,9 @@ bool Touch_Init(void)
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Touch controller initialization failed: %s - no touch controller detected", esp_err_to_name(ret));
         tp = NULL;
-        i2c_driver_delete(I2C_TOUCH_NUM);  // Clean up I2C
+        if (touch_dev_handle) { i2c_master_bus_rm_device(touch_dev_handle); touch_dev_handle = NULL; }
+        i2c_del_master_bus(touch_bus_handle);
+        touch_bus_handle = NULL;
         return false;
     }
     
