@@ -117,6 +117,16 @@ bool expansion_board_detected(void);
  */
 bool exbd_has_io(void);
 
+/**
+ * @brief Probe and reinitialize the expansion board
+ *
+ * Checks if the expansion board I2C devices are responding (i.e. board has
+ * power again after ignition-on). If found, reinitializes all devices.
+ *
+ * @return true if the board was found and reinitialized
+ */
+bool expansion_board_probe(void);
+
 /*******************************************************************************
  * Digital Inputs
  ******************************************************************************/

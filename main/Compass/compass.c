@@ -348,7 +348,6 @@ void compass_init(void)
     lv_obj_set_style_bg_opa(gauge_container, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(gauge_container, 1, 0);
     lv_obj_set_style_border_color(gauge_container, COLOR_BACKGROUND, 0);
-    lv_obj_set_style_pad_all(gauge_container, 0, 0);
     lv_obj_move_background(gauge_container);
 
     // Draw the rotating compass card first (behind fixed elements)

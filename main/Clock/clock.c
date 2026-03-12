@@ -31,6 +31,8 @@ static bool night_mode = true; // Night mode (green hands)
 static lv_obj_t *clock_face = NULL;
 static lv_obj_t *hour_hand = NULL;
 static lv_obj_t *minute_hand = NULL;
+static lv_obj_t *hour_shadow = NULL;
+static lv_obj_t *minute_shadow = NULL;
 
 // Update timer
 static lv_timer_t *clock_timer = NULL;
@@ -38,6 +40,14 @@ static lv_timer_t *clock_timer = NULL;
 // Hand points (line coordinates)
 static lv_point_t hour_points[2];
 static lv_point_t minute_points[2];
+static lv_point_t hour_shadow_points[2];
+static lv_point_t minute_shadow_points[2];
+
+// Shadow offset in pixels (down and to the right)
+#define SHADOW_OFS_X 3
+#define SHADOW_OFS_Y 3
+#define SHADOW_COLOR lv_color_make(40, 40, 40)
+#define SHADOW_OPA LV_OPA_60
 
 
 static inline int16_t clamp_x(int16_t x)
@@ -193,15 +203,31 @@ lv_obj_set_style_img_recolor(logo, get_accent_color(night_mode), LV_PART_MAIN);
  */
 static void create_hands(void)
 {
-    // Create hour hand
+    // Layer order (bottom to top): hour shadow, hour hand, minute shadow, minute hand
+
+    // Hour shadow (bottommost)
+    hour_shadow = lv_line_create(clock_face);
+    lv_obj_set_style_line_width(hour_shadow, 12, 0);
+    lv_obj_set_style_line_color(hour_shadow, SHADOW_COLOR, 0);
+    lv_obj_set_style_line_opa(hour_shadow, SHADOW_OPA, 0);
+    lv_obj_set_style_line_rounded(hour_shadow, true, 0);
+
+    // Hour hand
     hour_hand = lv_line_create(clock_face);
-    lv_obj_set_style_line_width(hour_hand, 12, 0); // 2x thicker (was 8)
+    lv_obj_set_style_line_width(hour_hand, 12, 0);
     lv_obj_set_style_line_color(hour_hand, get_accent_color(night_mode), 0);
     lv_obj_set_style_line_rounded(hour_hand, true, 0);
 
-    // Create minute hand
+    // Minute shadow (on top of hour hand)
+    minute_shadow = lv_line_create(clock_face);
+    lv_obj_set_style_line_width(minute_shadow, 9, 0);
+    lv_obj_set_style_line_color(minute_shadow, SHADOW_COLOR, 0);
+    lv_obj_set_style_line_opa(minute_shadow, SHADOW_OPA, 0);
+    lv_obj_set_style_line_rounded(minute_shadow, true, 0);
+
+    // Minute hand (topmost, before center cap)
     minute_hand = lv_line_create(clock_face);
-    lv_obj_set_style_line_width(minute_hand, 9, 0); // 2x thicker (was 6)
+    lv_obj_set_style_line_width(minute_hand, 9, 0);
     lv_obj_set_style_line_color(minute_hand, get_accent_color(night_mode), 0);
     lv_obj_set_style_line_rounded(minute_hand, true, 0);
 
@@ -277,6 +303,21 @@ void clock_update(uint8_t hour, uint8_t minute, uint8_t second)
     int center_y = CLOCK_CENTER_Y - TICK_YOFF;
     float hour_angle = ((hour % 12) * 30 + minute * 0.5 - 90) * M_PI / 180.0;
     float minute_angle = (minute * 6 + second * 0.1 - 90) * M_PI / 180.0;
+
+    // Update hour hand shadow (offset down-right)
+    hour_shadow_points[0].x = center_x + SHADOW_OFS_X;
+    hour_shadow_points[0].y = center_y + SHADOW_OFS_Y;
+    hour_shadow_points[1].x = center_x + cos(hour_angle) * HOUR_HAND_LENGTH + SHADOW_OFS_X;
+    hour_shadow_points[1].y = center_y + sin(hour_angle) * HOUR_HAND_LENGTH + SHADOW_OFS_Y;
+    if (hour_shadow) lv_line_set_points(hour_shadow, hour_shadow_points, 2);
+
+    // Update minute hand shadow (offset down-right)
+    minute_shadow_points[0].x = center_x + SHADOW_OFS_X;
+    minute_shadow_points[0].y = center_y + SHADOW_OFS_Y;
+    minute_shadow_points[1].x = center_x + cos(minute_angle) * MINUTE_HAND_LENGTH + SHADOW_OFS_X;
+    minute_shadow_points[1].y = center_y + sin(minute_angle) * MINUTE_HAND_LENGTH + SHADOW_OFS_Y;
+    if (minute_shadow) lv_line_set_points(minute_shadow, minute_shadow_points, 2);
+
     // Update hour hand
     hour_points[0].x = center_x;
     hour_points[0].y = center_y;
@@ -344,6 +385,10 @@ void clock_cleanup(void)
         clock_timer = NULL;
     }
 
+    if (hour_shadow)
+        lv_obj_del(hour_shadow);
+    if (minute_shadow)
+        lv_obj_del(minute_shadow);
     if (hour_hand)
         lv_obj_del(hour_hand);
     if (minute_hand)
@@ -351,6 +396,8 @@ void clock_cleanup(void)
     if (clock_face)
         lv_obj_del(clock_face);
 
+    hour_shadow = NULL;
+    minute_shadow = NULL;
     hour_hand = NULL;
     minute_hand = NULL;
     clock_face = NULL;

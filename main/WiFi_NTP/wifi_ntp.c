@@ -26,9 +26,12 @@
 
 static const char *TAG = "WIFI_NTP";
 
-// WiFi credentials (iPhone hotspot uses Unicode RIGHT SINGLE QUOTATION MARK U+2019)
-#define WIFI_SSID "Paul\xe2\x80\x99s iPhone"
-#define WIFI_PASS "0D03908CE5"
+// WiFi credentials — two networks, same password
+// Periodic (automatic daily): home network (always available when parked)
+// Commanded (clock long-press): iPhone hotspot (available anywhere)
+#define WIFI_SSID_HOME    "Barnard Home Network"
+#define WIFI_SSID_PHONE   "Paul\xe2\x80\x99s iPhone"   // Unicode RIGHT SINGLE QUOTATION MARK U+2019
+#define WIFI_PASS         "0D03908CE5"
 
 // Timing
 #define WIFI_CONNECT_TIMEOUT_MS  15000   // 15 s to associate + get IP
@@ -50,6 +53,7 @@ static bool wifi_connected = false;
 static bool s_task_running = false;       // true while sync task exists
 static bool s_abort        = false;       // set by wifi_ntp_stop()
 static bool s_handlers_registered = false;
+static bool s_use_phone_ssid = false;     // false = home network, true = iPhone
 #define MAX_RETRY 5
 
 /* ─── event handler ──────────────────────────────────────────────── */
@@ -131,10 +135,30 @@ static void wifi_shutdown(void)
     ESP_LOGI(TAG, "WiFi stopped");
 }
 
+/* ─── WiFi credential switcher ───────────────────────────────────── */
+static void wifi_set_credentials(bool use_phone)
+{
+    const char *ssid = use_phone ? WIFI_SSID_PHONE : WIFI_SSID_HOME;
+    wifi_config_t wifi_config = {
+        .sta = {
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    // Copy SSID/password (strncpy handles the variable-length SSID)
+    strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
+    strncpy((char *)wifi_config.sta.password, WIFI_PASS, sizeof(wifi_config.sta.password));
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    ESP_LOGI(TAG, "WiFi credentials set for: %s", ssid);
+}
+
 /* ─── sync background task ───────────────────────────────────────── */
 static void wifi_ntp_task(void *arg)
 {
-    ESP_LOGI(TAG, "NTP sync task started");
+    const char *net_name = s_use_phone_ssid ? WIFI_SSID_PHONE : WIFI_SSID_HOME;
+    ESP_LOGI(TAG, "NTP sync task started (network: %s)", net_name);
+
+    // Apply the correct SSID before starting WiFi
+    wifi_set_credentials(s_use_phone_ssid);
 
     // Reset state
     s_retry_num = 0;
@@ -239,17 +263,10 @@ bool wifi_ntp_init(void)
         s_handlers_registered = true;
     }
 
-    // Configure credentials (takes effect on next esp_wifi_start)
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_SSID,
-            .password = WIFI_PASS,
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-        },
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    // Set default credentials (home network for auto-sync)
+    wifi_set_credentials(false);
 
-    ESP_LOGI(TAG, "WiFi NTP initialised (WiFi idle, awaiting ignition trigger)");
+    ESP_LOGI(TAG, "WiFi NTP initialised (WiFi idle, awaiting sync trigger)");
     return true;
 }
 
@@ -263,6 +280,8 @@ void wifi_ntp_start(void)
         return;  // already logged inside cooldown_active()
     }
 
+    // Periodic auto-sync uses the home network
+    s_use_phone_ssid = false;
     s_task_running = true;
     xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 4096, NULL, 3, NULL, 0);
 }
@@ -273,8 +292,9 @@ void wifi_ntp_force_start(void)
         ESP_LOGW(TAG, "Sync already in progress — ignoring");
         return;
     }
-    // Bypass cooldown — user explicitly requested a sync
-    ESP_LOGI(TAG, "Force NTP sync requested (bypassing cooldown)");
+    // Bypass cooldown — user explicitly requested a sync via iPhone hotspot
+    ESP_LOGI(TAG, "Force NTP sync requested (iPhone hotspot, bypassing cooldown)");
+    s_use_phone_ssid = true;
     s_task_running = true;
     xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 4096, NULL, 3, NULL, 0);
 }

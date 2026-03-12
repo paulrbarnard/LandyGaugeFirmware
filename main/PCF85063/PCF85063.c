@@ -10,6 +10,8 @@
 *
 ******************************************************************************/
 #include "PCF85063.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 datetime_t datetime= {0};
 
@@ -27,7 +29,15 @@ void PCF85063_Init()
 {
 	uint8_t Value = RTC_CTRL_1_DEFAULT|RTC_CTRL_1_CAP_SEL;
 
-	ESP_ERROR_CHECK(I2C_Write(PCF85063_ADDRESS, RTC_CTRL_1_ADDR, &Value, 1));
+	esp_err_t ret = I2C_Write(PCF85063_ADDRESS, RTC_CTRL_1_ADDR, &Value, 1);
+	if (ret != ESP_OK) {
+		printf("PCF85063_Init: I2C write failed (%d), retrying...\n", ret);
+		vTaskDelay(pdMS_TO_TICKS(100));
+		ret = I2C_Write(PCF85063_ADDRESS, RTC_CTRL_1_ADDR, &Value, 1);
+		if (ret != ESP_OK) {
+			printf("PCF85063_Init: retry failed (%d) — RTC may not be available\n", ret);
+		}
+	}
 
 	// datetime_t Now_datetime= {0};
 	// Now_datetime.year = 2024;

@@ -48,6 +48,10 @@ static gauge_type_t current_gauge = GAUGE_CLOCK;
 static lv_obj_t *touch_overlay = NULL;  // Global overlay reference (used only if touch available)
 static bool test_night_mode = false;    // Track day/night mode for testing
 
+// Backlight levels: night mode is dimmer since green is perceived brighter
+#define BACKLIGHT_DAY   70
+#define BACKLIGHT_NIGHT 15
+
 /* ── Gauge cycling order ─────────────────────────────────────────────── */
 static const gauge_type_t gauge_order[] = {
     GAUGE_CLOCK,
@@ -142,6 +146,24 @@ static float coolant_voltage_to_temp(float v)
 static bool ignition_on = true;        // Assume ON at boot (display starts active)
 static bool system_sleeping = false;   // True when in low-power standby mode
 #define FORCE_IGNITION_ON  0           // TEMP: set to 1 to bypass ignition detection
+
+/**
+ * Expansion board power mode (compile-time configuration):
+ *
+ *  EXBD_POWER_ALWAYS_ON  (0) — Board is permanently powered (has its own
+ *                               regulator).  Ignition state is read from
+ *                               MCP23017 IO1 (EXBD_INPUT_IGNITION).
+ *
+ *  EXBD_POWER_IGN_SWITCHED (1) — Board is powered through the ignition
+ *                               circuit.  Ignition state is inferred from
+ *                               I2C bus presence: devices responding =
+ *                               ignition ON, bus dead = ignition OFF.
+ *                               Lower quiescent current but needs TCA4307
+ *                               I2C buffer to protect the Waveshare bus.
+ */
+#define EXBD_POWER_ALWAYS_ON     0
+#define EXBD_POWER_IGN_SWITCHED  1
+#define EXBD_POWER_MODE          EXBD_POWER_ALWAYS_ON     // <-- change here
 
 // Temporary wake: select button or screen touch wakes display for 5 min with ignition off
 #define TEMP_WAKE_DURATION_MS  (5 * 60 * 1000)  // 5 minutes
@@ -679,7 +701,7 @@ static void exit_standby_mode(void)
     
     // 2. Turn on display panel and backlight
     esp_lcd_panel_disp_on_off(panel_handle, true);
-    Set_Backlight(LCD_Backlight);
+    Set_Backlight(test_night_mode ? BACKLIGHT_NIGHT : BACKLIGHT_DAY);
     
     // 3. Show the clock gauge (always start with clock after wake)
     current_gauge = GAUGE_CLOCK;
@@ -971,44 +993,87 @@ void app_main(void)
 
     ESP_LOGI("MAIN", "Button input active on GPIO%d", CONFIG_BUTTON_NEXT_GPIO);
 
-    // Check initial ignition state — if ignition is OFF at boot, go straight to standby
-    if (!FORCE_IGNITION_ON && exbd_has_io()) {
-        ignition_on = exbd_get_input(EXBD_INPUT_IGNITION);
+    // Check initial ignition state — expansion board presence = ignition ON
+    // (The expansion board is powered by the ignition circuit, so if I2C devices
+    // respond, ignition is on. If they don't respond, ignition is off.)
+    if (!FORCE_IGNITION_ON) {
+#if EXBD_POWER_MODE == EXBD_POWER_ALWAYS_ON
+        // Permanently powered board — read ignition signal from MCP23017 IO1
+        if (exbd_has_io()) {
+            ignition_on = exbd_get_input(EXBD_INPUT_IGNITION);
+            if (!ignition_on) {
+                ESP_LOGW("MAIN", "Ignition OFF at boot — entering standby immediately");
+                enter_standby_mode();
+            } else {
+                ESP_LOGI("MAIN", "Ignition ON at boot — normal operation");
+            }
+        } else {
+            ESP_LOGI("MAIN", "No I/O expander — skipping ignition check");
+        }
+#else
+        // Ignition-switched board — presence on I2C = ignition ON
+        ignition_on = expansion_board_detected();
         if (!ignition_on) {
-            ESP_LOGW("MAIN", "Ignition OFF at boot — entering standby immediately");
+            ESP_LOGW("MAIN", "Expansion board not detected at boot — entering standby");
             enter_standby_mode();
         } else {
-            ESP_LOGI("MAIN", "Ignition ON at boot — normal operation");
+            ESP_LOGI("MAIN", "Expansion board detected at boot — ignition ON");
         }
-    } else {
-        ESP_LOGI("MAIN", "No I/O expander — skipping ignition check");
+#endif
     }
 
     while (1) {
         // *** Ignition power management ***
-        // Check ignition state from expansion board (IO1, active high after IPOL)
-        if (!FORCE_IGNITION_ON && exbd_has_io()) {
-            bool ign_now = exbd_get_input(EXBD_INPUT_IGNITION);
-            
-            if (ign_now && !ignition_on) {
-                // Ignition just turned ON — wake up
+        if (!FORCE_IGNITION_ON) {
+#if EXBD_POWER_MODE == EXBD_POWER_ALWAYS_ON
+            // Permanently powered board — read ignition input from MCP23017
+            if (exbd_has_io()) {
+                bool ign_now = exbd_get_input(EXBD_INPUT_IGNITION);
+                if (ign_now && !ignition_on) {
+                    ignition_on = true;
+                    exit_standby_mode();
+                } else if (!ign_now && ignition_on) {
+                    ignition_on = false;
+                    enter_standby_mode();
+                }
+            }
+#else
+            // Ignition-switched board — I2C presence = ignition ON
+            // The poll task auto-clears board_detected after consecutive I2C failures.
+            bool board_now = expansion_board_detected();
+            if (board_now && !ignition_on) {
                 ignition_on = true;
                 exit_standby_mode();
-            } else if (!ign_now && ignition_on) {
-                // Ignition just turned OFF — go to standby
+            } else if (!board_now && ignition_on) {
                 ignition_on = false;
                 enter_standby_mode();
             }
+#endif
         }
         
-        // While in standby, check for select button or screen touch to temp-wake
+        // While in standby, check for wake triggers
         if (system_sleeping) {
             bool wake_trigger = false;
 
-            // Check select button (expansion board)
+#if EXBD_POWER_MODE == EXBD_POWER_ALWAYS_ON
+            // Permanently powered board — check select button for temp-wake
             if (expansion_board_detected() && exbd_select_pressed()) {
                 wake_trigger = true;
             }
+#else
+            // Ignition-switched board — probe I2C every ~2s to detect board return
+            static uint32_t last_probe_ms = 0;
+            uint32_t probe_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((probe_now - last_probe_ms) >= 2000) {
+                last_probe_ms = probe_now;
+                if (expansion_board_probe()) {
+                    ESP_LOGW("MAIN", "Expansion board detected — ignition ON");
+                    ignition_on = true;
+                    exit_standby_mode();
+                    continue;
+                }
+            }
+#endif
 
             // Check screen touch (GPIO4 goes LOW on touch)
             if (touch_available && gpio_get_level(I2C_Touch_INT_IO) == 0) {
@@ -1044,6 +1109,13 @@ void app_main(void)
             }
         }
         
+        // Periodic NTP auto-sync (once per day, home network)
+        // wifi_ntp_start() respects the 24-hour NVS cooldown internally,
+        // so calling it every loop iteration is safe and cheap.
+        if (!system_sleeping) {
+            wifi_ntp_start();
+        }
+
         // Check for button press (GPIO0 boot button or GPIO43 next)
         if (button_input_pressed()) {
             ESP_LOGD("MAIN", "Next button pressed - switching gauge");
@@ -1105,7 +1177,9 @@ void app_main(void)
             bool lights_on = exbd_get_input(EXBD_INPUT_LIGHTS);
             if (lights_on != test_night_mode) {
                 test_night_mode = lights_on;
-                ESP_LOGI("MAIN", "Lights input → %s mode", lights_on ? "NIGHT" : "DAY");
+                Set_Backlight(lights_on ? BACKLIGHT_NIGHT : BACKLIGHT_DAY);
+                ESP_LOGI("MAIN", "Lights input → %s mode (backlight %d)", lights_on ? "NIGHT" : "DAY",
+                         lights_on ? BACKLIGHT_NIGHT : BACKLIGHT_DAY);
                 switch (current_gauge) {
                     case GAUGE_CLOCK:         clock_set_night_mode(test_night_mode); break;
                     case GAUGE_HORIZON:       artificial_horizon_set_night_mode(test_night_mode); break;
@@ -1121,6 +1195,7 @@ void app_main(void)
         } else if (test_night_mode) {
             /* No expansion board — force day mode */
             test_night_mode = false;
+            Set_Backlight(BACKLIGHT_DAY);
             ESP_LOGI("MAIN", "No expansion board — forcing DAY mode");
             switch (current_gauge) {
                 case GAUGE_CLOCK:         clock_set_night_mode(false); break;

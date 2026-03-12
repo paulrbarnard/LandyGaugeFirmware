@@ -29,6 +29,10 @@ static const char *TAG = "EXBD";
 #define EXBD_TASK_STACK_SIZE    3072    // Polling task stack
 #define EXBD_TASK_PRIORITY      2       // Lower than Driver_Loop (3)
 
+// Board-loss detection: consecutive I2C failures before declaring board gone
+#define EXBD_FAIL_THRESHOLD     3       // 3 consecutive failures = board lost
+static int i2c_fail_count = 0;
+
 /*******************************************************************************
  * Internal state
  ******************************************************************************/
@@ -174,6 +178,18 @@ static void expansion_poll_task(void *param)
             uint8_t port_b = 0;
             if (mcp23017_read_port('B', &port_b) == ESP_OK) {
                 process_inputs(port_b, now_ms);
+                i2c_fail_count = 0;  // Reset on success
+            } else {
+                i2c_fail_count++;
+                if (i2c_fail_count >= EXBD_FAIL_THRESHOLD && board_detected) {
+                    ESP_LOGW(TAG, "Expansion board lost (%d consecutive I2C failures)",
+                             i2c_fail_count);
+                    board_detected = false;
+                    mcp23017_ok = false;
+                    ads1115_ok = false;
+                    qmc5883l_ok = false;
+                    mcp9600_ok = false;
+                }
             }
         }
 
@@ -338,6 +354,69 @@ bool expansion_board_detected(void)
 bool exbd_has_io(void)
 {
     return mcp23017_ok;
+}
+
+bool expansion_board_probe(void)
+{
+    // Quick I2C probe of the key device (MCP23017) to check if board is powered
+    if (!i2c_probe_fast(MCP23017_I2C_ADDR)) {
+        return false;  // Board still unpowered
+    }
+
+    ESP_LOGI(TAG, "Expansion board responding — reinitializing devices");
+
+    // Reinitialize all I2C devices on the expansion board
+    if (i2c_probe_fast(MCP23017_I2C_ADDR) && mcp23017_init() == ESP_OK) {
+        mcp23017_ok = true;
+        ESP_LOGI(TAG, "MCP23017 reinitialized: OK");
+    }
+
+    if (i2c_probe_fast(ADS1115_I2C_ADDR) && ads1115_init() == ESP_OK) {
+        ads1115_ok = true;
+        ESP_LOGI(TAG, "ADS1115 reinitialized: OK");
+    }
+
+    if (i2c_probe_fast(LIS3MDL_I2C_ADDR) && lis3mdl_init() == ESP_OK) {
+        qmc5883l_ok = true;
+        ESP_LOGI(TAG, "LIS3MDL reinitialized: OK");
+    }
+
+    // MCP9600 needs extra time and slower clock
+    esp_log_level_set("i2c.master", ESP_LOG_WARN);
+    if (I2C_Probe(MCP9600_I2C_ADDR, 200) == ESP_OK && mcp9600_init() == ESP_OK) {
+        mcp9600_ok = true;
+        ESP_LOGI(TAG, "MCP9600 reinitialized: OK");
+    }
+    esp_log_level_set("i2c.master", ESP_LOG_ERROR);
+
+    // Read initial input state
+    if (mcp23017_ok) {
+        uint8_t initial = 0;
+        mcp23017_read_port('B', &initial);
+        debounce.stable_state = initial;
+        debounce.raw_state = initial;
+        debounce.last_change_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+        if (xSemaphoreTake(input_mutex, portMAX_DELAY) == pdTRUE) {
+            input_snapshot.raw_byte = initial;
+            for (int i = 0; i < EXBD_INPUT_COUNT; i++) {
+                input_snapshot.inputs[i].current = (initial >> i) & 0x01;
+                input_snapshot.inputs[i].changed = false;
+            }
+            xSemaphoreGive(input_mutex);
+        }
+    }
+
+    i2c_fail_count = 0;
+    board_detected = (mcp23017_ok || ads1115_ok || qmc5883l_ok || mcp9600_ok);
+
+    ESP_LOGI(TAG, "Expansion board reinit complete (MCP23017=%s, ADS1115=%s, LIS3MDL=%s, MCP9600=%s)",
+             mcp23017_ok ? "YES" : "NO",
+             ads1115_ok ? "YES" : "NO",
+             qmc5883l_ok ? "YES" : "NO",
+             mcp9600_ok ? "YES" : "NO");
+
+    return board_detected;
 }
 
 /*******************************************************************************
