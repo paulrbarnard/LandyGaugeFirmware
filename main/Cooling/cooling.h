@@ -59,6 +59,30 @@ void cooling_cleanup(void);
 void cooling_toggle_wading(void);
 
 /**
+ * @brief Toggle manual fan low override on/off
+ * Controls GPA1 on MCP23017 expansion board
+ */
+void cooling_toggle_fan_low(void);
+
+/**
+ * @brief Toggle manual fan high override on/off
+ * Controls GPA2 on MCP23017 expansion board
+ */
+void cooling_toggle_fan_high(void);
+
+/**
+ * @brief Get manual fan low override state
+ * @return true if manual fan low is currently active
+ */
+bool cooling_get_fan_low_override(void);
+
+/**
+ * @brief Get manual fan high override state
+ * @return true if manual fan high is currently active
+ */
+bool cooling_get_fan_high_override(void);
+
+/**
  * @brief Check if any cooling alarm is active
  * @return true if FanLow, FanHigh, or Coolant Low is active
  */

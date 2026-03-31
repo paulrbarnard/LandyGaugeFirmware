@@ -542,7 +542,29 @@ static void touch_event_handler(lv_event_t * e)
             lv_indev_get_point(indev, &point);
         }
 
-        if (touch_in_center(&point)) {
+        if (current_gauge == GAUGE_COOLING) {
+            // Cooling gauge: three long-press zones across the whole screen
+            //   Top-left  (x < 180, y < 180) = toggle fan low  (over fan low icon)
+            //   Top-right (x >= 180, y < 180) = toggle fan high (over fan high icon)
+            //   Bottom    (y >= 180)          = toggle wading
+            ESP_LOGD("MAIN", "Long press cooling (%d,%d)", point.x, point.y);
+            warning_beep_play(BEEP_SHORT);
+            select_tap_pending = false;
+            select_tap_time = 0;
+            touch_press_valid = false;
+            if (point.y < 180) {
+                if (point.x < 180) {
+                    ESP_LOGW("MAIN", "Touch long-press top-left — toggle fan low");
+                    cooling_toggle_fan_low();
+                } else {
+                    ESP_LOGW("MAIN", "Touch long-press top-right — toggle fan high");
+                    cooling_toggle_fan_high();
+                }
+            } else {
+                ESP_LOGW("MAIN", "Touch long-press bottom — toggle wading");
+                cooling_toggle_wading();
+            }
+        } else if (touch_in_center(&point)) {
             ESP_LOGD("MAIN", "Long press center (%d,%d) — long-press action", point.x, point.y);
             warning_beep_play(BEEP_SHORT);
             // Cancel any pending single/double tap
@@ -551,12 +573,7 @@ static void touch_event_handler(lv_event_t * e)
             // Consume press so SHORT_CLICKED won't also fire for this touch
             touch_press_valid = false;
             // Fire long-press action (same as select button long-press)
-            if (current_gauge == GAUGE_COOLING) {
-                ESP_LOGW("MAIN", "Touch long-press — toggle wading");
-                cooling_toggle_wading();
-            } else {
-                handle_select_action();
-            }
+            handle_select_action();
         } else {
             // ESP_LOGD("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
         }

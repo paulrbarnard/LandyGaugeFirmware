@@ -136,6 +136,10 @@ static bool night_mode = true;
 static bool is_visible = false;
 static bool wading_mode = false;
 
+/* ── Manual fan override state ──────────────────────────────────────── */
+static bool fan_low_override  = false;   /* Manual fan low via GPA1 */
+static bool fan_high_override = false;   /* Manual fan high via GPA2 */
+
 /* ── Cached input states (updated each cooling_update call) ─────────── */
 static bool fan_low_active  = false;
 static bool fan_high_active = false;
@@ -703,6 +707,20 @@ void cooling_toggle_wading(void)
     wading_mode = !wading_mode;
     ESP_LOGW(TAG, "Wading mode: %s", wading_mode ? "ON" : "OFF");
 
+    /* Turn off manual fan overrides when entering wading mode */
+    if (wading_mode) {
+        if (fan_low_override) {
+            fan_low_override = false;
+            if (exbd_has_io()) mcp23017_write_pin('A', 1, false);
+            ESP_LOGI(TAG, "Fan low override turned off for wading");
+        }
+        if (fan_high_override) {
+            fan_high_override = false;
+            if (exbd_has_io()) mcp23017_write_pin('A', 2, false);
+            ESP_LOGI(TAG, "Fan high override turned off for wading");
+        }
+    }
+
     /* Control OUT1 on expansion board */
     if (exbd_has_io()) {
         mcp23017_write_pin('A', 0, wading_mode);
@@ -734,6 +752,72 @@ void cooling_toggle_wading(void)
         get_fan_color(fan_low_active, wading_mode), 0);
     if (fan_high_label) lv_obj_set_style_text_color(fan_high_label,
         get_fan_color(fan_high_active, wading_mode), 0);
+}
+
+void cooling_toggle_fan_low(void)
+{
+    if (wading_mode) {
+        ESP_LOGW(TAG, "Cannot toggle fan low — wading mode active");
+        return;
+    }
+    fan_low_override = !fan_low_override;
+    ESP_LOGW(TAG, "Manual fan LOW: %s", fan_low_override ? "ON" : "OFF");
+
+    /* Control GPA1 on MCP23017 expansion board */
+    if (exbd_has_io()) {
+        mcp23017_write_pin('A', 1, fan_low_override);
+        ESP_LOGI(TAG, "GPA1 (fan low) %s", fan_low_override ? "activated" : "deactivated");
+    }
+
+    /* Play notification MP3 */
+    if (fan_low_override) {
+        Play_Music("/sdcard", "fanLowOn.mp3");
+    } else {
+        Play_Music("/sdcard", "fanLowOff.mp3");
+    }
+
+    /* Update fan icon display */
+    if (fan_low_obj)  lv_obj_invalidate(fan_low_obj);
+    if (fan_low_label) lv_obj_set_style_text_color(fan_low_label,
+        get_fan_color(fan_low_active, wading_mode), 0);
+}
+
+void cooling_toggle_fan_high(void)
+{
+    if (wading_mode) {
+        ESP_LOGW(TAG, "Cannot toggle fan high — wading mode active");
+        return;
+    }
+    fan_high_override = !fan_high_override;
+    ESP_LOGW(TAG, "Manual fan HIGH: %s", fan_high_override ? "ON" : "OFF");
+
+    /* Control GPA2 on MCP23017 expansion board */
+    if (exbd_has_io()) {
+        mcp23017_write_pin('A', 2, fan_high_override);
+        ESP_LOGI(TAG, "GPA2 (fan high) %s", fan_high_override ? "activated" : "deactivated");
+    }
+
+    /* Play notification MP3 */
+    if (fan_high_override) {
+        Play_Music("/sdcard", "fanHighOn.mp3");
+    } else {
+        Play_Music("/sdcard", "fanHighOff.mp3");
+    }
+
+    /* Update fan icon display */
+    if (fan_high_obj)  lv_obj_invalidate(fan_high_obj);
+    if (fan_high_label) lv_obj_set_style_text_color(fan_high_label,
+        get_fan_color(fan_high_active, wading_mode), 0);
+}
+
+bool cooling_get_fan_low_override(void)
+{
+    return fan_low_override;
+}
+
+bool cooling_get_fan_high_override(void)
+{
+    return fan_high_override;
 }
 
 bool cooling_alarm_active(void)
