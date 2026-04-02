@@ -19,7 +19,9 @@
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "esp_system.h"
 #include "PCF85063.h"
+#include "ble_tpms.h"
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
@@ -54,6 +56,7 @@ static bool s_task_running = false;       // true while sync task exists
 static bool s_abort        = false;       // set by wifi_ntp_stop()
 static bool s_handlers_registered = false;
 static bool s_use_phone_ssid = false;     // false = home network, true = iPhone
+static volatile bool s_ntp_synced = false; // set by SNTP notification callback
 #define MAX_RETRY 5
 
 /* ─── event handler ──────────────────────────────────────────────── */
@@ -118,11 +121,22 @@ static bool cooldown_active(void)
 
     uint32_t age_h = ((uint32_t)now - last) / 3600;
     if (age_h < WIFI_NTP_COOLDOWN_HOURS) {
-        ESP_LOGD(TAG, "NTP cooldown active — last sync %lu h ago (<%d h)",
-                 (unsigned long)age_h, WIFI_NTP_COOLDOWN_HOURS);
+        static bool logged_once = false;
+        if (!logged_once) {
+            ESP_LOGI(TAG, "NTP cooldown active — last sync %lu h ago (<%d h)",
+                     (unsigned long)age_h, WIFI_NTP_COOLDOWN_HOURS);
+            logged_once = true;
+        }
         return true;
     }
     return false;
+}
+
+/* ─── SNTP time sync notification callback ───────────────────────── */
+static void time_sync_notification_cb(struct timeval *tv)
+{
+    ESP_LOGI(TAG, "SNTP time synced (epoch %ld)", (long)tv->tv_sec);
+    s_ntp_synced = true;
 }
 
 /* ─── WiFi start / stop helpers ──────────────────────────────────── */
@@ -157,6 +171,11 @@ static void wifi_ntp_task(void *arg)
     const char *net_name = s_use_phone_ssid ? WIFI_SSID_PHONE : WIFI_SSID_HOME;
     ESP_LOGI(TAG, "NTP sync task started (network: %s)", net_name);
 
+    // Stop BLE scanning — shared radio, BLE must yield for WiFi
+    ESP_LOGI(TAG, "Stopping BLE scan for WiFi coexistence");
+    ble_tpms_stop_scan();
+    vTaskDelay(pdMS_TO_TICKS(200));  // Let BLE radio quiesce
+
     // Apply the correct SSID before starting WiFi
     wifi_set_credentials(s_use_phone_ssid);
 
@@ -185,30 +204,33 @@ static void wifi_ntp_task(void *arg)
 
     ESP_LOGI(TAG, "WiFi connected — starting NTP sync");
 
-    // 3. SNTP sync
+    // 3. SNTP sync — use notification callback for reliable detection
+    s_ntp_synced = false;
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    sntp_set_time_sync_notification_cb(time_sync_notification_cb);
     esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    esp_sntp_setservername(2, "216.239.35.0");   // time.google.com IP fallback (DNS may fail on hotspot)
     esp_sntp_init();
+    ESP_LOGI(TAG, "SNTP started (pool.ntp.org + time.google.com + IP fallback)");
 
     int retry = 0;
-    const int max_retry = NTP_SYNC_TIMEOUT_MS / 200;
-    time_t now = 0;
-    struct tm ti = {0};
-    while (ti.tm_year < (2016 - 1900) && ++retry < max_retry && !s_abort) {
-        vTaskDelay(pdMS_TO_TICKS(200));
-        time(&now);
-        localtime_r(&now, &ti);
+    const int max_retry = NTP_SYNC_TIMEOUT_MS / 250;
+    while (!s_ntp_synced && ++retry < max_retry && !s_abort) {
+        vTaskDelay(pdMS_TO_TICKS(250));
     }
     if (s_abort) goto shutdown;
 
-    if (ti.tm_year < (2016 - 1900)) {
-        ESP_LOGE(TAG, "NTP sync timeout");
+    if (!s_ntp_synced) {
+        ESP_LOGE(TAG, "NTP sync timeout after %d ms", NTP_SYNC_TIMEOUT_MS);
         goto shutdown;
     }
 
     // 4. Apply timezone and update RTC
     setenv("TZ", "GMT0BST,M3.5.0/1,M10.5.0", 1);
     tzset();
+    time_t now = 0;
+    struct tm ti = {0};
     time(&now);
     localtime_r(&now, &ti);
 
@@ -233,6 +255,9 @@ static void wifi_ntp_task(void *arg)
 shutdown:
     wifi_shutdown();
 done:
+    // Resume BLE scanning now that WiFi is off
+    ESP_LOGI(TAG, "Resuming BLE scan");
+    ble_tpms_start_scan();
     s_task_running = false;
     ESP_LOGI(TAG, "NTP sync task finished");
     vTaskDelete(NULL);
@@ -266,6 +291,9 @@ bool wifi_ntp_init(void)
     // Set default credentials (home network for auto-sync)
     wifi_set_credentials(false);
 
+    // Clear cooldown so a sync is attempted on every fresh boot
+    nvs_set_last_sync(0);
+
     ESP_LOGI(TAG, "WiFi NTP initialised (WiFi idle, awaiting sync trigger)");
     return true;
 }
@@ -273,8 +301,7 @@ bool wifi_ntp_init(void)
 void wifi_ntp_start(void)
 {
     if (s_task_running) {
-        ESP_LOGW(TAG, "Sync already in progress — ignoring");
-        return;
+        return;  // silently skip — main loop calls this every 10ms
     }
     if (cooldown_active()) {
         return;  // already logged inside cooldown_active()
@@ -283,7 +310,11 @@ void wifi_ntp_start(void)
     // Periodic auto-sync uses the home network
     s_use_phone_ssid = false;
     s_task_running = true;
-    xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 4096, NULL, 3, NULL, 0);
+    BaseType_t ret = xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 6144, NULL, 3, NULL, 0);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create NTP task (heap=%lu)", (unsigned long)esp_get_free_heap_size());
+        s_task_running = false;
+    }
 }
 
 void wifi_ntp_force_start(void)
@@ -296,7 +327,11 @@ void wifi_ntp_force_start(void)
     ESP_LOGI(TAG, "Force NTP sync requested (iPhone hotspot, bypassing cooldown)");
     s_use_phone_ssid = true;
     s_task_running = true;
-    xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 4096, NULL, 3, NULL, 0);
+    BaseType_t ret = xTaskCreatePinnedToCore(wifi_ntp_task, "wifi_ntp", 6144, NULL, 3, NULL, 0);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create NTP task (heap=%lu)", (unsigned long)esp_get_free_heap_size());
+        s_task_running = false;
+    }
 }
 
 void wifi_ntp_stop(void)
