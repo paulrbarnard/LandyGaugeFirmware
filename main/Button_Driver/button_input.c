@@ -145,6 +145,25 @@ bool button_input_prev_pressed(void)
     return poll_button(&btn_prev);
 }
 
+bool button_input_both_held(void)
+{
+    if (!initialized) return false;
+    return button_input_next_held() && button_input_prev_held();
+}
+
+bool button_input_next_held(void)
+{
+    if (!initialized) return false;
+    return (gpio_get_level(BUTTON_NEXT_GPIO) == BUTTON_ACTIVE_LEVEL) ||
+           (gpio_get_level(BUTTON_BOOT_GPIO) == BUTTON_ACTIVE_LEVEL);
+}
+
+bool button_input_prev_held(void)
+{
+    if (!initialized) return false;
+    return (gpio_get_level(BUTTON_PREV_GPIO) == BUTTON_ACTIVE_LEVEL);
+}
+
 void button_input_cleanup(void)
 {
     if (!initialized) return;

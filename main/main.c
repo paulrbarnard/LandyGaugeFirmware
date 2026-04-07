@@ -418,7 +418,7 @@ static void handle_select_action(void)
 // Double-tap select → jump to clock gauge
 // First tap is deferred; if second tap arrives within window → clock.
 // If window expires without second tap → fire gauge-specific action.
-#define DOUBLE_TAP_WINDOW_MS  1000  // Max interval between taps to count as double-tap
+#define DOUBLE_TAP_WINDOW_MS  500  // Max interval between taps to count as double-tap
 static uint32_t select_tap_time = 0;     // Timestamp of the pending first tap (0 = none)
 static bool     select_tap_pending = false;
 
@@ -427,6 +427,13 @@ static bool     select_tap_pending = false;
 static bool     select_held = false;       // Button currently being held
 static uint32_t select_held_since = 0;     // When button was first seen held
 static bool     select_long_fired = false; // Long-press already fired this hold
+static bool     combo_active = false;      // Both next+prev held (emulates select)
+
+// Combo tolerance: allow up to 150ms between first and second button press
+#define COMBO_TOLERANCE_MS    150
+static bool     combo_waiting = false;     // One button pressed, waiting for the other
+static uint32_t combo_wait_start = 0;      // When the first button was pressed
+static bool     combo_wait_next = false;   // The waiting button was next (true) or prev (false)
 
 /**
  * @brief Called when select button is pressed (or touch center long-pressed).
@@ -1097,6 +1104,11 @@ void app_main(void)
                 wake_trigger = true;
             }
 
+            // Check any physical button press (wake without expansion board or touch)
+            if (button_input_both_held()) {
+                wake_trigger = true;
+            }
+
             if (wake_trigger) {
                 ESP_LOGW("MAIN", "Standby wake — display active for %d min",
                          TEMP_WAKE_DURATION_MS / 60000);
@@ -1133,18 +1145,89 @@ void app_main(void)
             wifi_ntp_start();
         }
 
-        // Check for button press (GPIO0 boot button or GPIO43 next)
-        if (button_input_pressed()) {
-            ESP_LOGD("MAIN", "Next button pressed - switching gauge");
-            handle_next_gauge_input();
+        // Combo-press: next+prev held together = select (works with or without expansion board)
+        // Uses a tolerance window so both buttons don't need to be pressed at the exact same instant.
+        {
+            bool next_held = button_input_next_held();
+            bool prev_held = button_input_prev_held();
+            bool both_now = next_held && prev_held;
+            uint32_t now_cb = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+            // If waiting for second button and it arrived (or both now held)
+            if (combo_waiting && both_now) {
+                combo_waiting = false;
+                combo_active = true;
+                select_held = true;
+                select_held_since = combo_wait_start;  // Time from first button
+                select_long_fired = false;
+                // Consume any pending edge-triggered presses
+                button_input_pressed();
+                button_input_prev_pressed();
+            }
+            // Tolerance window expired — commit to the single button that was pressed
+            else if (combo_waiting && (now_cb - combo_wait_start) >= COMBO_TOLERANCE_MS) {
+                combo_waiting = false;
+                if (combo_wait_next) {
+                    handle_next_gauge_input();
+                } else {
+                    handle_prev_gauge_input();
+                }
+            }
+            // Already in combo mode — track long-press
+            else if (combo_active) {
+                if (both_now && !select_long_fired) {
+                    uint32_t held_ms = now_cb - select_held_since;
+                    if (held_ms >= SELECT_LONG_PRESS_MS) {
+                        select_long_fired = true;
+                        select_tap_pending = false;
+                        select_tap_time = 0;
+                        warning_beep_play(BEEP_SHORT);
+                        if (current_gauge == GAUGE_COOLING) {
+                            ESP_LOGW("MAIN", "Combo long-press — toggle wading");
+                            cooling_toggle_wading();
+                        } else {
+                            handle_select_action();
+                        }
+                    }
+                } else if (!both_now) {
+                    // One or both buttons released — end combo
+                    if (!select_long_fired) {
+                        process_select_tap();  // Short combo press = tap
+                    }
+                    combo_active = false;
+                    select_held = false;
+                    button_input_pressed();
+                    button_input_prev_pressed();
+                }
+            }
+            // Not in combo and not waiting — check for individual button edges
+            else if (!combo_waiting) {
+                bool next_edge = button_input_pressed();
+                bool prev_edge = button_input_prev_pressed();
+
+                if (next_edge && prev_edge) {
+                    // Both fired on the same poll — go straight to combo
+                    combo_active = true;
+                    select_held = true;
+                    select_held_since = now_cb;
+                    select_long_fired = false;
+                } else if (next_edge) {
+                    // Next pressed first — wait for prev within tolerance
+                    combo_waiting = true;
+                    combo_wait_start = now_cb;
+                    combo_wait_next = true;
+                } else if (prev_edge) {
+                    // Prev pressed first — wait for next within tolerance
+                    combo_waiting = true;
+                    combo_wait_start = now_cb;
+                    combo_wait_next = false;
+                }
+            }
         }
-        
-        // Check for previous button press (GPIO44)
-        if (button_input_prev_pressed()) {
-            ESP_LOGD("MAIN", "Prev button pressed - switching gauge");
-            handle_prev_gauge_input();
-        }
-        
+
+        // Check for button press (GPIO0 boot button or GPIO43 next) — only when combo not active
+        // (Individual presses are handled inside combo block above when combo detection is in play)
+
         // Check expansion board select button — single tap = action, double tap = clock
         if (expansion_board_detected() && exbd_select_pressed()) {
             if (!select_long_fired) {  // Ignore edge if long-press already fired this hold
