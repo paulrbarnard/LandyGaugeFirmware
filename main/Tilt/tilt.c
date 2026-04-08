@@ -66,230 +66,153 @@ static lv_obj_t *horizon_line_obj = NULL;    // Rotating horizon line (stays lev
 static lv_obj_t *left_scale_obj = NULL;      // Left side scale (static)
 static lv_obj_t *right_scale_obj = NULL;     // Right side scale (static)
 
+// Previous horizon line endpoints — used to compute targeted invalidation area
+static lv_point_t prev_line_p0 = {0, 0};
+static lv_point_t prev_line_p1 = {0, 0};
+static bool       prev_line_valid = false;
+
+// Pre-computed scale tick geometry (static — computed once at init)
+#define SCALE_TICK_COUNT 4
+typedef struct {
+    lv_point_t upper_tick[2];   // Outer tick line endpoints
+    lv_point_t lower_tick[2];   // Mirror tick (0 if tilt_val==0)
+    lv_area_t  upper_label;     // Label bounding box
+    lv_area_t  lower_label;     // Mirror label bounding box
+    int        value;           // Tick value (0, 15, 30, 45)
+    int        tick_len;        // Tick length
+} scale_tick_t;
+
+static scale_tick_t left_ticks[SCALE_TICK_COUNT];
+static scale_tick_t right_ticks[SCALE_TICK_COUNT];
+static lv_point_t   left_arc_center;
+static lv_point_t   right_arc_center;
+
+/**
+ * @brief Pre-compute tick geometry for one side of the scale.
+ *        Called once during tilt_init() — no trig at draw time.
+ */
+static void precompute_ticks(scale_tick_t *ticks, int32_t cx, int32_t cy,
+                             int32_t radius, bool left_side)
+{
+    int tick_values[] = {0, 15, 30, 45};
+    for (int i = 0; i < SCALE_TICK_COUNT; i++) {
+        int tv = tick_values[i];
+        ticks[i].value = tv;
+        ticks[i].tick_len = (tv == 0) ? 15 : ((tv == 30) ? 12 : 8);
+        int tl = ticks[i].tick_len;
+
+        float upper_deg = left_side ? (180.0f - tv) : (float)(-tv);
+        float upper_rad = upper_deg * (float)M_PI / 180.0f;
+        float cu = cosf(upper_rad), su = sinf(upper_rad);
+
+        ticks[i].upper_tick[0].x = cx + (int32_t)(radius * cu);
+        ticks[i].upper_tick[0].y = cy + (int32_t)(radius * su);
+        ticks[i].upper_tick[1].x = cx + (int32_t)((radius + tl) * cu);
+        ticks[i].upper_tick[1].y = cy + (int32_t)((radius + tl) * su);
+
+        if (tv > 0) {
+            float lower_deg = left_side ? (180.0f + tv) : (float)tv;
+            float lower_rad = lower_deg * (float)M_PI / 180.0f;
+            float cl = cosf(lower_rad), sl = sinf(lower_rad);
+
+            ticks[i].lower_tick[0].x = cx + (int32_t)(radius * cl);
+            ticks[i].lower_tick[0].y = cy + (int32_t)(radius * sl);
+            ticks[i].lower_tick[1].x = cx + (int32_t)((radius + tl) * cl);
+            ticks[i].lower_tick[1].y = cy + (int32_t)((radius + tl) * sl);
+
+            // Upper label
+            ticks[i].upper_label.x1 = cx + (int32_t)((radius + 20) * cu) - 12;
+            ticks[i].upper_label.y1 = cy + (int32_t)((radius + 20) * su) - 8;
+            ticks[i].upper_label.x2 = ticks[i].upper_label.x1 + 24;
+            ticks[i].upper_label.y2 = ticks[i].upper_label.y1 + 16;
+
+            // Lower label
+            ticks[i].lower_label.x1 = cx + (int32_t)((radius + 20) * cl) - 12;
+            ticks[i].lower_label.y1 = cy + (int32_t)((radius + 20) * sl) - 8;
+            ticks[i].lower_label.x2 = ticks[i].lower_label.x1 + 24;
+            ticks[i].lower_label.y2 = ticks[i].lower_label.y1 + 16;
+        }
+    }
+}
+
 /**
  * @brief Draw callback for left side tilt scale (curved arc)
- * Range: 0 to +45 degrees (vehicle tilting left)
- * The scale is static (fixed to display)
+ * Uses pre-computed tick positions — no trig at draw time.
  */
 static void draw_left_scale_cb(lv_event_t *e)
 {
-    lv_obj_t *obj = lv_event_get_target(e);
     lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(e);
-    
-    lv_area_t obj_coords;
-    lv_obj_get_coords(obj, &obj_coords);
-    
-    int32_t center_x = (obj_coords.x1 + obj_coords.x2) / 2;
-    int32_t center_y = (obj_coords.y1 + obj_coords.y2) / 2;
-    int32_t radius = SCALE_RADIUS;
-    
-    // Scale is static - no tilt offset
-    float tilt_offset = 0.0f;
-    
+
     lv_draw_arc_dsc_t arc_dsc;
     lv_draw_arc_dsc_init(&arc_dsc);
     arc_dsc.color = scale_line_color;
     arc_dsc.width = 3;
     arc_dsc.opa = LV_OPA_COVER;
-    
-    // Draw arc on left side (from 135° to 225° in LVGL coords, rotated by tilt)
-    // LVGL angles: 0° at 3 o'clock, increases clockwise
-    lv_point_t center_point;
-    center_point.x = center_x;
-    center_point.y = center_y;
-    
-    // Apply tilt offset to arc angles
-    int16_t arc_start = 135 + (int16_t)tilt_offset;
-    int16_t arc_end = 225 + (int16_t)tilt_offset;
-    lv_draw_arc(draw_ctx, &arc_dsc, &center_point, radius, arc_start, arc_end);
-    
-    // Draw tick marks
+    lv_draw_arc(draw_ctx, &arc_dsc, &left_arc_center, SCALE_RADIUS, 135, 225);
+
     lv_draw_line_dsc_t tick_dsc;
     lv_draw_line_dsc_init(&tick_dsc);
     tick_dsc.color = scale_line_color;
     tick_dsc.width = 2;
     tick_dsc.opa = LV_OPA_COVER;
-    
+
     lv_draw_label_dsc_t label_dsc;
     lv_draw_label_dsc_init(&label_dsc);
     label_dsc.color = scale_line_color;
     label_dsc.opa = LV_OPA_COVER;
-    
-    // Tick marks: 0, 15, 30, 45 (on left side, reading up from center)
-    // 180° = horizontal left (0 tilt), 135° = 45° tilt up, 225° = 45° tilt down
-    int tick_values[] = {0, 15, 30, 45};
-    for (int i = 0; i < 4; i++) {
-        int tilt_val = tick_values[i];
-        
-        // Upper tick (above horizontal) - apply tilt offset
-        float upper_lvgl_angle = 180.0f - tilt_val + tilt_offset;
-        float upper_angle_rad = upper_lvgl_angle * M_PI / 180.0f;
-        
-        int tick_len = (tilt_val == 0) ? 15 : ((tilt_val == 30) ? 12 : 8);
-        
-        // Upper tick - draw outward from arc
-        int32_t x1 = center_x + (int32_t)(radius * cosf(upper_angle_rad));
-        int32_t y1 = center_y + (int32_t)(radius * sinf(upper_angle_rad));
-        int32_t x2 = center_x + (int32_t)((radius + tick_len) * cosf(upper_angle_rad));
-        int32_t y2 = center_y + (int32_t)((radius + tick_len) * sinf(upper_angle_rad));
-        
-        lv_point_t tick_points[2];
-        tick_points[0].x = x1;
-        tick_points[0].y = y1;
-        tick_points[1].x = x2;
-        tick_points[1].y = y2;
-        lv_draw_line(draw_ctx, &tick_dsc, &tick_points[0], &tick_points[1]);
-        
-        // Lower tick (below horizontal) - mirror with tilt offset
-        if (tilt_val > 0) {
-            float lower_lvgl_angle = 180.0f + tilt_val + tilt_offset;
-            float lower_angle_rad = lower_lvgl_angle * M_PI / 180.0f;
-            
-            x1 = center_x + (int32_t)(radius * cosf(lower_angle_rad));
-            y1 = center_y + (int32_t)(radius * sinf(lower_angle_rad));
-            x2 = center_x + (int32_t)((radius + tick_len) * cosf(lower_angle_rad));
-            y2 = center_y + (int32_t)((radius + tick_len) * sinf(lower_angle_rad));
-            
-            tick_points[0].x = x1;
-            tick_points[0].y = y1;
-            tick_points[1].x = x2;
-            tick_points[1].y = y2;
-            lv_draw_line(draw_ctx, &tick_dsc, &tick_points[0], &tick_points[1]);
-        }
-        
-        // Add numeric labels for major ticks (15, 30, 45) - outside the arc
-        if (tilt_val > 0) {
+
+    for (int i = 0; i < SCALE_TICK_COUNT; i++) {
+        scale_tick_t *t = &left_ticks[i];
+        lv_draw_line(draw_ctx, &tick_dsc, &t->upper_tick[0], &t->upper_tick[1]);
+
+        if (t->value > 0) {
+            lv_draw_line(draw_ctx, &tick_dsc, &t->lower_tick[0], &t->lower_tick[1]);
+
             char label_text[12];
-            snprintf(label_text, sizeof(label_text), "%d", tilt_val);
-            
-            // Upper label - positioned outside arc
-            lv_area_t label_area;
-            label_area.x1 = center_x + (int32_t)((radius + 20) * cosf(upper_angle_rad)) - 12;
-            label_area.y1 = center_y + (int32_t)((radius + 20) * sinf(upper_angle_rad)) - 8;
-            label_area.x2 = label_area.x1 + 24;
-            label_area.y2 = label_area.y1 + 16;
-            lv_draw_label(draw_ctx, &label_dsc, &label_area, label_text, NULL);
-            
-            // Lower label (mirror) - positioned outside arc
-            float lower_angle_rad = (180.0f + tilt_val + tilt_offset) * M_PI / 180.0f;
-            label_area.x1 = center_x + (int32_t)((radius + 20) * cosf(lower_angle_rad)) - 12;
-            label_area.y1 = center_y + (int32_t)((radius + 20) * sinf(lower_angle_rad)) - 8;
-            label_area.x2 = label_area.x1 + 24;
-            label_area.y2 = label_area.y1 + 16;
-            lv_draw_label(draw_ctx, &label_dsc, &label_area, label_text, NULL);
+            snprintf(label_text, sizeof(label_text), "%d", t->value);
+            lv_draw_label(draw_ctx, &label_dsc, &t->upper_label, label_text, NULL);
+            lv_draw_label(draw_ctx, &label_dsc, &t->lower_label, label_text, NULL);
         }
     }
 }
 
 /**
  * @brief Draw callback for right side tilt scale (curved arc)
- * Range: 0 to +45 degrees (vehicle tilting right)
- * The scale is static (fixed to display)
+ * Uses pre-computed tick positions — no trig at draw time.
  */
 static void draw_right_scale_cb(lv_event_t *e)
 {
-    lv_obj_t *obj = lv_event_get_target(e);
     lv_draw_ctx_t *draw_ctx = lv_event_get_draw_ctx(e);
-    
-    lv_area_t obj_coords;
-    lv_obj_get_coords(obj, &obj_coords);
-    
-    int32_t center_x = (obj_coords.x1 + obj_coords.x2) / 2;
-    int32_t center_y = (obj_coords.y1 + obj_coords.y2) / 2;
-    int32_t radius = SCALE_RADIUS;
-    
-    // Scale is static - no tilt offset
-    float tilt_offset = 0.0f;
-    
+
     lv_draw_arc_dsc_t arc_dsc;
     lv_draw_arc_dsc_init(&arc_dsc);
     arc_dsc.color = scale_line_color;
     arc_dsc.width = 3;
     arc_dsc.opa = LV_OPA_COVER;
-    
-    // Draw arc on right side (from 315° to 405° in LVGL coords, rotated by tilt)
-    lv_point_t center_point;
-    center_point.x = center_x;
-    center_point.y = center_y;
-    
-    // Apply tilt offset to arc angles
-    int16_t arc_start = 315 + (int16_t)tilt_offset;
-    int16_t arc_end = 405 + (int16_t)tilt_offset;  // 405 = 45 + 360
-    lv_draw_arc(draw_ctx, &arc_dsc, &center_point, radius, arc_start, arc_end);
-    
-    // Draw tick marks
+    lv_draw_arc(draw_ctx, &arc_dsc, &right_arc_center, SCALE_RADIUS, 315, 405);
+
     lv_draw_line_dsc_t tick_dsc;
     lv_draw_line_dsc_init(&tick_dsc);
     tick_dsc.color = scale_line_color;
     tick_dsc.width = 2;
     tick_dsc.opa = LV_OPA_COVER;
-    
+
     lv_draw_label_dsc_t label_dsc;
     lv_draw_label_dsc_init(&label_dsc);
     label_dsc.color = scale_line_color;
     label_dsc.opa = LV_OPA_COVER;
-    
-    // Tick marks: 0, 15, 30, 45 (on right side)
-    int tick_values[] = {0, 15, 30, 45};
-    for (int i = 0; i < 4; i++) {
-        int tilt_val = tick_values[i];
-        
-        // Upper tick (above horizontal) - apply tilt offset
-        float upper_lvgl_angle = -tilt_val + tilt_offset;  // 0° to -45° (315°)
-        float upper_angle_rad = upper_lvgl_angle * M_PI / 180.0f;
-        
-        int tick_len = (tilt_val == 0) ? 15 : ((tilt_val == 30) ? 12 : 8);
-        
-        // Upper tick - draw outward from arc
-        int32_t x1 = center_x + (int32_t)(radius * cosf(upper_angle_rad));
-        int32_t y1 = center_y + (int32_t)(radius * sinf(upper_angle_rad));
-        int32_t x2 = center_x + (int32_t)((radius + tick_len) * cosf(upper_angle_rad));
-        int32_t y2 = center_y + (int32_t)((radius + tick_len) * sinf(upper_angle_rad));
-        
-        lv_point_t tick_points[2];
-        tick_points[0].x = x1;
-        tick_points[0].y = y1;
-        tick_points[1].x = x2;
-        tick_points[1].y = y2;
-        lv_draw_line(draw_ctx, &tick_dsc, &tick_points[0], &tick_points[1]);
-        
-        // Lower tick (below horizontal) - apply tilt offset
-        if (tilt_val > 0) {
-            float lower_lvgl_angle = tilt_val + tilt_offset;  // 0° to 45°
-            float lower_angle_rad = lower_lvgl_angle * M_PI / 180.0f;
-            
-            x1 = center_x + (int32_t)(radius * cosf(lower_angle_rad));
-            y1 = center_y + (int32_t)(radius * sinf(lower_angle_rad));
-            x2 = center_x + (int32_t)((radius + tick_len) * cosf(lower_angle_rad));
-            y2 = center_y + (int32_t)((radius + tick_len) * sinf(lower_angle_rad));
-            
-            tick_points[0].x = x1;
-            tick_points[0].y = y1;
-            tick_points[1].x = x2;
-            tick_points[1].y = y2;
-            lv_draw_line(draw_ctx, &tick_dsc, &tick_points[0], &tick_points[1]);
-        }
-        
-        // Add numeric labels for major ticks (15, 30, 45) - outside the arc
-        if (tilt_val > 0) {
+
+    for (int i = 0; i < SCALE_TICK_COUNT; i++) {
+        scale_tick_t *t = &right_ticks[i];
+        lv_draw_line(draw_ctx, &tick_dsc, &t->upper_tick[0], &t->upper_tick[1]);
+
+        if (t->value > 0) {
+            lv_draw_line(draw_ctx, &tick_dsc, &t->lower_tick[0], &t->lower_tick[1]);
+
             char label_text[12];
-            snprintf(label_text, sizeof(label_text), "%d", tilt_val);
-            
-            // Upper label - positioned outside arc
-            lv_area_t label_area;
-            label_area.x1 = center_x + (int32_t)((radius + 20) * cosf(upper_angle_rad)) - 12;
-            label_area.y1 = center_y + (int32_t)((radius + 20) * sinf(upper_angle_rad)) - 8;
-            label_area.x2 = label_area.x1 + 24;
-            label_area.y2 = label_area.y1 + 16;
-            lv_draw_label(draw_ctx, &label_dsc, &label_area, label_text, NULL);
-            
-            // Lower label (mirror) - positioned outside arc
-            float lower_angle_rad_r = (tilt_val + tilt_offset) * M_PI / 180.0f;
-            label_area.x1 = center_x + (int32_t)((radius + 20) * cosf(lower_angle_rad_r)) - 12;
-            label_area.y1 = center_y + (int32_t)((radius + 20) * sinf(lower_angle_rad_r)) - 8;
-            label_area.x2 = label_area.x1 + 24;
-            label_area.y2 = label_area.y1 + 16;
-            lv_draw_label(draw_ctx, &label_dsc, &label_area, label_text, NULL);
+            snprintf(label_text, sizeof(label_text), "%d", t->value);
+            lv_draw_label(draw_ctx, &label_dsc, &t->upper_label, label_text, NULL);
+            lv_draw_label(draw_ctx, &label_dsc, &t->lower_label, label_text, NULL);
         }
     }
 }
@@ -394,6 +317,25 @@ void tilt_init(void) {
     lv_obj_set_style_border_width(right_scale_obj, 0, 0);
     lv_obj_clear_flag(right_scale_obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(right_scale_obj, draw_right_scale_cb, LV_EVENT_DRAW_MAIN, NULL);
+
+    // Pre-compute static scale tick geometry (no trig needed at draw time)
+    // Force layout so lv_obj_get_coords returns real screen positions
+    lv_obj_update_layout(tilt_gauge);
+    {
+        lv_area_t lc;
+        lv_obj_get_coords(left_scale_obj, &lc);
+        int32_t lcx = (lc.x1 + lc.x2) / 2, lcy = (lc.y1 + lc.y2) / 2;
+        left_arc_center.x = lcx;
+        left_arc_center.y = lcy;
+        precompute_ticks(left_ticks, lcx, lcy, SCALE_RADIUS, true);
+
+        lv_area_t rc;
+        lv_obj_get_coords(right_scale_obj, &rc);
+        int32_t rcx = (rc.x1 + rc.x2) / 2, rcy = (rc.y1 + rc.y2) / 2;
+        right_arc_center.x = rcx;
+        right_arc_center.y = rcy;
+        precompute_ticks(right_ticks, rcx, rcy, SCALE_RADIUS, false);
+    }
     
     // Create the shadow overlay effects (same as other gauges)
     create_gauge_shadows(tilt_gauge, night_mode);
@@ -500,9 +442,39 @@ void tilt_set_angle(float angle_degrees) {
         }
     }
     
-    // Invalidate horizon line so it redraws with new rotation and color
+    // Targeted invalidation: only mark the old + new line bounding boxes
+    // instead of the full 280x280 horizon_line_obj area.  This avoids
+    // LVGL redrawing the overlapping image and scale objects.
     if (horizon_line_obj) {
-        lv_obj_invalidate(horizon_line_obj);
+        lv_area_t obj_coords;
+        lv_obj_get_coords(horizon_line_obj, &obj_coords);
+        int32_t cx = (obj_coords.x1 + obj_coords.x2) / 2;
+        int32_t cy = (obj_coords.y1 + obj_coords.y2) / 2;
+        int32_t half = SCALE_RADIUS - 2;
+        float rad = current_tilt_angle * (float)M_PI / 180.0f;
+        float ca = cosf(rad), sa = sinf(rad);
+        lv_point_t p0 = { cx + (int32_t)(-half * ca), cy + (int32_t)(-half * sa) };
+        lv_point_t p1 = { cx + (int32_t)( half * ca), cy + (int32_t)( half * sa) };
+
+        // Build a tight rectangle around previous + new line positions
+        #define LINE_PAD 4  // extra pixels for line width + anti-alias
+        lv_area_t dirty;
+        if (prev_line_valid) {
+            dirty.x1 = LV_MIN(LV_MIN(prev_line_p0.x, prev_line_p1.x), LV_MIN(p0.x, p1.x)) - LINE_PAD;
+            dirty.y1 = LV_MIN(LV_MIN(prev_line_p0.y, prev_line_p1.y), LV_MIN(p0.y, p1.y)) - LINE_PAD;
+            dirty.x2 = LV_MAX(LV_MAX(prev_line_p0.x, prev_line_p1.x), LV_MAX(p0.x, p1.x)) + LINE_PAD;
+            dirty.y2 = LV_MAX(LV_MAX(prev_line_p0.y, prev_line_p1.y), LV_MAX(p0.y, p1.y)) + LINE_PAD;
+        } else {
+            dirty.x1 = LV_MIN(p0.x, p1.x) - LINE_PAD;
+            dirty.y1 = LV_MIN(p0.y, p1.y) - LINE_PAD;
+            dirty.x2 = LV_MAX(p0.x, p1.x) + LINE_PAD;
+            dirty.y2 = LV_MAX(p0.y, p1.y) + LINE_PAD;
+        }
+        lv_obj_invalidate_area(horizon_line_obj, &dirty);
+        prev_line_p0 = p0;
+        prev_line_p1 = p1;
+        prev_line_valid = true;
+        #undef LINE_PAD
     }
     
     ESP_LOGD(TAG, "Tilt angle set to %.1f degrees (horizon line rotated)", angle_degrees);

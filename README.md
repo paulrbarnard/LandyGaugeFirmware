@@ -21,6 +21,8 @@ This project supports **both touch and non-touch versions** of the Waveshare ESP
 - **Gauge Switching**: External buttons on GPIO pins
   - Default Next Button: GPIO 0
   - Default Prev Button: GPIO 4
+  - **Combo Press**: Pressing both Next + Prev simultaneously (within 150ms) acts as a Select button
+  - **Long Press**: Holding the combo press for 1 second triggers a long-press select action
 
 ### Common Features
 - **IMU**: QMI8658 6-axis motion sensor (gyroscope + accelerometer)
