@@ -25,15 +25,14 @@
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
+#include "settings.h"
 
 static const char *TAG = "WIFI_NTP";
 
-// WiFi credentials — two networks, same password
-// Periodic (automatic daily): home network (always available when parked)
-// Commanded (clock long-press): iPhone hotspot (available anywhere)
-#define WIFI_SSID_HOME    "Barnard Home Network"
-#define WIFI_SSID_PHONE   "Paul\xe2\x80\x99s iPhone"   // Unicode RIGHT SINGLE QUOTATION MARK U+2019
-#define WIFI_PASS         "0D03908CE5"
+// Default WiFi credentials — used when NVS has no saved credentials
+#define WIFI_SSID_HOME_DEFAULT    "Barnard Home Network"
+#define WIFI_SSID_PHONE_DEFAULT   "Paul\xe2\x80\x99s iPhone"   // Unicode RIGHT SINGLE QUOTATION MARK U+2019
+#define WIFI_PASS_DEFAULT         "0D03908CE5"
 
 // Timing
 #define WIFI_CONNECT_TIMEOUT_MS  15000   // 15 s to associate + get IP
@@ -152,15 +151,57 @@ static void wifi_shutdown(void)
 /* ─── WiFi credential switcher ───────────────────────────────────── */
 static void wifi_set_credentials(bool use_phone)
 {
-    const char *ssid = use_phone ? WIFI_SSID_PHONE : WIFI_SSID_HOME;
+    /* Use NVS credentials if available, otherwise fall back to compiled defaults */
+    const char *ssid;
+    const char *pass;
+
+    if (use_phone) {
+        ssid = settings_get_wifi_phone_ssid();
+        pass = settings_get_wifi_phone_pass();
+        if (ssid[0] == '\0') ssid = WIFI_SSID_PHONE_DEFAULT;
+        if (pass[0] == '\0') pass = WIFI_PASS_DEFAULT;
+    } else {
+        ssid = settings_get_wifi_home_ssid();
+        pass = settings_get_wifi_home_pass();
+        if (ssid[0] == '\0') ssid = WIFI_SSID_HOME_DEFAULT;
+        if (pass[0] == '\0') pass = WIFI_PASS_DEFAULT;
+    }
+
     wifi_config_t wifi_config = {
         .sta = {
             .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
-    // Copy SSID/password (strncpy handles the variable-length SSID)
+
+    /* Apple devices use Unicode RIGHT SINGLE QUOTATION MARK (U+2019,
+       UTF-8: E2 80 99) in auto-generated names like "Paul's iPhone".
+       Our simple text editor only has the ASCII apostrophe (0x27),
+       so substitute only when the SSID looks like an Apple device name. */
+    char fixed_ssid[33];
+    bool apple_ssid = (strcasestr(ssid, "iPhone") || strcasestr(ssid, "iPad") ||
+                       strcasestr(ssid, "iPod")   || strcasestr(ssid, "MacBook") ||
+                       strcasestr(ssid, "iMac")   || strcasestr(ssid, "Apple"));
+    if (apple_ssid && strchr(ssid, '\'')) {
+        const char *s = ssid;
+        char *d = fixed_ssid;
+        char *end = fixed_ssid + sizeof(fixed_ssid) - 1;
+        while (*s && d < end) {
+            if (*s == '\'' && (end - d) >= 3) {
+                *d++ = '\xe2';
+                *d++ = '\x80';
+                *d++ = '\x99';
+                s++;
+            } else {
+                *d++ = *s++;
+            }
+        }
+        *d = '\0';
+        ssid = fixed_ssid;
+        ESP_LOGI(TAG, "Apple device detected — converted apostrophe to Unicode");
+    }
+
     strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
-    strncpy((char *)wifi_config.sta.password, WIFI_PASS, sizeof(wifi_config.sta.password));
+    strncpy((char *)wifi_config.sta.password, pass, sizeof(wifi_config.sta.password));
     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
     ESP_LOGI(TAG, "WiFi credentials set for: %s", ssid);
 }
@@ -168,7 +209,7 @@ static void wifi_set_credentials(bool use_phone)
 /* ─── sync background task ───────────────────────────────────────── */
 static void wifi_ntp_task(void *arg)
 {
-    const char *net_name = s_use_phone_ssid ? WIFI_SSID_PHONE : WIFI_SSID_HOME;
+    const char *net_name = s_use_phone_ssid ? "phone" : "home";
     ESP_LOGI(TAG, "NTP sync task started (network: %s)", net_name);
 
     // Stop BLE scanning — shared radio, BLE must yield for WiFi
@@ -227,8 +268,7 @@ static void wifi_ntp_task(void *arg)
     }
 
     // 4. Apply timezone and update RTC
-    setenv("TZ", "GMT0BST,M3.5.0/1,M10.5.0", 1);
-    tzset();
+    settings_apply_timezone();
     time_t now = 0;
     struct tm ti = {0};
     time(&now);

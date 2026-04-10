@@ -129,6 +129,8 @@ if __name__ == '__main__':
         ('images/110RearDark235.png', 'main/110RearDark235.c', 'rear_dark_110_235',  'REAR_DARK_110_235'),
         ('images/110Roof150w.png',    'main/110Roof150w.c',    'roof_110_150w',      'ROOF_110_150W'),
         ('images/110RoofDark150w.png','main/110RoofDark150w.c','roof_dark_110_150w', 'ROOF_DARK_110_150W'),
+        ('images/110Side292w.png',    'main/110Side292w.c',    'side_110_292w',      'SIDE_110_292W'),
+        ('images/110SideDark292w.png','main/110SideDark292w.c','side_dark_110_292w', 'SIDE_DARK_110_292W'),
     ]
 
     # Convert only images that exist

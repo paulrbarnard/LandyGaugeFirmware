@@ -10,6 +10,7 @@ idf_component_register(
                               "./Touch_Driver/CST820.c"
                               "./Touch_Driver/esp_lcd_touch/esp_lcd_touch.c"
                               "./Button_Driver/button_input.c"
+                              "./Button_Driver/user_input.c"
                               "./LVGL_Driver/LVGL_Driver.c"
                               "./LVGL_Driver/styles.c"
                               "./Clock/clock.c"
@@ -29,6 +30,9 @@ idf_component_register(
                               "./PWR_Key/PWR_Key.c"
                               "./Wireless/Wireless.c"
                               "./Tilt/tilt.c"
+                              "./Incline/incline.c"
+                              "./110Side292w.c"
+                              "./110SideDark292w.c"
                               "./TirePressure/tire_pressure.c"
                               "./IMU/imu_attitude.c"
                               "./BLE_TPMS/ble_tpms.c"
@@ -42,6 +46,7 @@ idf_component_register(
                               "./EGT/egt.c"
                               "./Cooling/cooling.c"
                               "./Settings/settings.c"
+                              "./Settings/settings_screen.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
@@ -63,6 +68,7 @@ idf_component_register(
                               "./I2C_Driver"
                               "./PCF85063"
                               "./Tilt"
+                              "./Incline"
                               "./TirePressure"
                               "./IMU"
                               "./BLE_TPMS"

@@ -13,6 +13,7 @@
 #include "wifi_ntp.h"
 #include "artificial_horizon.h"
 #include "Tilt/tilt.h"
+#include "Incline/incline.h"
 #include "TirePressure/tire_pressure.h"
 #include "IMU/imu_attitude.h"
 #include "BLE_TPMS/ble_tpms.h"
@@ -26,6 +27,8 @@
 #include "lis3mdl.h"
 #include "mcp9600.h"
 #include "settings.h"
+#include "settings_screen.h"
+#include "user_input.h"
 #include "nvs_flash.h"
 #include "soc/rtc.h"
 #include <math.h>
@@ -36,11 +39,13 @@ typedef enum {
     GAUGE_CLOCK = 0,
     GAUGE_HORIZON,       // Temporarily skipped in cycling
     GAUGE_TILT,
+    GAUGE_INCLINE,
     GAUGE_TIRE_PRESSURE,
     GAUGE_BOOST,
     GAUGE_COMPASS,
     GAUGE_EGT,
     GAUGE_COOLING,
+    GAUGE_SETTINGS,      // Hidden — not in gauge_order[]
     GAUGE_COUNT
 } gauge_type_t;
 
@@ -60,6 +65,7 @@ static const gauge_type_t gauge_order[] = {
     GAUGE_COOLING,
     GAUGE_TIRE_PRESSURE,
     GAUGE_TILT,
+    GAUGE_INCLINE,
     GAUGE_COMPASS,
 };
 #define GAUGE_ORDER_COUNT  (sizeof(gauge_order) / sizeof(gauge_order[0]))
@@ -90,7 +96,7 @@ static bool should_skip_gauge(gauge_type_t g)
 // Auto-switch thresholds (use yellow warning levels)
 #define AUTO_SWITCH_ROLL_THRESHOLD  30.0f  // Switch to tilt gauge (yellow zone)
 #define AUTO_SWITCH_LOCKOUT_MS      5000   // 5 second lockout after manual/auto switch
-#define INACTIVITY_TIMEOUT_MS       300000 // 5 minutes = 300,000 ms
+#define INACTIVITY_TIMEOUT_MS       600000 // 10 minutes = 600,000 ms
 #define ALARM_RETURN_DELAY_MS       30000  // 30 seconds after alarm clears → return to previous gauge
 
 static uint32_t manual_switch_time = 0;    // Timestamp of last manual switch
@@ -103,6 +109,17 @@ static uint32_t     alarm_cleared_time   = 0;           // Timestamp when alarm 
 
 // Thread-safe pending switch request (Driver_Loop sets, main loop handles)
 static volatile gauge_type_t pending_switch = GAUGE_COUNT;  // GAUGE_COUNT = no pending switch
+
+// TPMS audio alert one-shot flag
+static bool tpms_mp3_played = false;
+
+// TPMS battery alarm: check on ignition ON transition, 1-hour cooldown
+#define TPMS_BATT_RED_THRESHOLD   2      // Battery % below this = red zone
+#define TPMS_BATT_CHECK_DELAY_MS  15000  // Wait 15s after ignition ON for BLE data
+#define TPMS_BATT_COOLDOWN_MS     (60UL * 60 * 1000)  // 1 hour cooldown
+static bool     tpms_batt_check_pending = false;  // True after ignition ON transition
+static uint32_t tpms_batt_check_start   = 0;      // When the pending check was armed
+static uint32_t tpms_batt_last_alarm_ms = 0;      // Timestamp of last battery alarm (0 = never)
 
 // MAP sensor configuration (2-bar boost Renault sensor on ADS1115 AIN0)
 // "2 bar" = 2 bar gauge boost = 3 bar absolute (0-300 kPa)
@@ -287,6 +304,7 @@ static void check_auto_switch_alarms(void)
                 alarm_auto_switched = false;
                 alarm_previous_gauge = GAUGE_COUNT;
                 alarm_cleared_time = 0;
+                tpms_mp3_played = false;  /* Reset TPMS audio one-shot */
 
                 if (!should_skip_gauge(return_to)) {
                     ESP_LOGW("ALARM", "Alarm clear for %d s — returning to gauge %d",
@@ -321,6 +339,11 @@ static void check_auto_switch_alarms(void)
             /* Clear one-shot alarm flags before switching */
             if (a->target == GAUGE_TIRE_PRESSURE) {
                 ble_tpms_clear_pressure_drop_alarm();
+                if (!tpms_mp3_played) {
+                    tpms_mp3_played = true;
+                    Play_Music("/sdcard", "tirewar.mp3");
+                    ESP_LOGW("ALARM", "Playing tirewar.mp3");
+                }
             }
 
             switch_gauge(a->target);
@@ -405,6 +428,10 @@ static void handle_select_action(void)
             ESP_LOGD("MAIN", "Select: tilt zero-offset");
             tilt_zero_offset();
             break;
+        case GAUGE_INCLINE:
+            ESP_LOGD("MAIN", "Select: incline cycle mode");
+            incline_cycle_mode();
+            break;
         case GAUGE_COOLING:
             ESP_LOGD("MAIN", "Select: cooling (long-press for wading)");
             // Wading toggle moved to long-press — single tap does nothing on cooling
@@ -412,69 +439,6 @@ static void handle_select_action(void)
         default:
             // ESP_LOGD("MAIN", "Select action (no action on this gauge)");
             break;
-    }
-}
-
-// Double-tap select → jump to clock gauge
-// First tap is deferred; if second tap arrives within window → clock.
-// If window expires without second tap → fire gauge-specific action.
-#define DOUBLE_TAP_WINDOW_MS  500  // Max interval between taps to count as double-tap
-static uint32_t select_tap_time = 0;     // Timestamp of the pending first tap (0 = none)
-static bool     select_tap_pending = false;
-
-// Long-press detection for expansion board select button
-#define SELECT_LONG_PRESS_MS  1000  // Hold time to trigger long-press action
-static bool     select_held = false;       // Button currently being held
-static uint32_t select_held_since = 0;     // When button was first seen held
-static bool     select_long_fired = false; // Long-press already fired this hold
-static bool     combo_active = false;      // Both next+prev held (emulates select)
-
-// Combo tolerance: allow up to 150ms between first and second button press
-#define COMBO_TOLERANCE_MS    150
-static bool     combo_waiting = false;     // One button pressed, waiting for the other
-static uint32_t combo_wait_start = 0;      // When the first button was pressed
-static bool     combo_wait_next = false;   // The waiting button was next (true) or prev (false)
-
-/**
- * @brief Called when select button is pressed (or touch center long-pressed).
- * Records the tap; on second tap within window → jump to clock.
- */
-static void process_select_tap(void)
-{
-    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    if (temp_wake_active) temp_wake_start = now;  // Extend temp wake on activity
-    if (select_tap_pending && (now - select_tap_time) <= DOUBLE_TAP_WINDOW_MS) {
-        /* Second tap within window — double-tap → jump to clock */
-        select_tap_pending = false;
-        select_tap_time = 0;
-        if (current_gauge != GAUGE_CLOCK) {
-            ESP_LOGW("MAIN", "Double-tap select — jumping to clock");
-            manual_switch_time = now;
-            alarm_auto_switched = false;
-            switch_gauge(GAUGE_CLOCK);
-        }
-    } else {
-        /* First tap — defer action, wait for possible second tap */
-        select_tap_pending = true;
-        select_tap_time = now;
-        ESP_LOGD("MAIN", "Select tap — waiting for double-tap...");
-    }
-}
-
-/**
- * @brief Check if deferred single-tap has expired (call from main loop).
- * Fires the gauge-specific action when the double-tap window passes.
- */
-static void check_select_tap_timeout(void)
-{
-    if (!select_tap_pending) return;
-    uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    if ((now - select_tap_time) > DOUBLE_TAP_WINDOW_MS) {
-        select_tap_pending = false;
-        select_tap_time = 0;
-        /* Single tap expired without a second tap — discard silently.
-           Settings changes only happen via deliberate long-press (2s). */
-        ESP_LOGD("MAIN", "Single tap expired — discarded (use long-press for settings)");
     }
 }
 
@@ -497,68 +461,58 @@ static lv_point_t touch_press_point = {0, 0};
 static bool       touch_press_valid = false;
 static uint32_t   last_touch_switch_ms = 0;
 
-// Touch event handler: tap left/right edges = prev/next, long press center = select
+// Touch event handler: maps touch zones → unified input events.
+// Center taps detected on PRESSED (finger-down) for reliable double-tap.
+// Left/right detected on SHORT_CLICKED (finger-up) with debounce.
+// Cooling gauge has special long-press zones (whole-screen), handled directly here.
 static void touch_event_handler(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
 
     if (code == LV_EVENT_PRESSED) {
-        /* Record where the finger first touched down */
         lv_indev_t *indev = lv_indev_get_act();
         lv_indev_get_point(indev, &touch_press_point);
         touch_press_valid = true;
+
+        /* Center taps: detect on finger-down for reliable double-tap.
+           The double-tap state machine handles timing; long-press cancels
+           a pending tap if the finger is held. */
+        if (touch_in_center(&touch_press_point)) {
+            user_input_feed_select_tap();
+        }
         return;
     }
 
     if (code == LV_EVENT_SHORT_CLICKED) {
-        /* Use the PRESS position for direction, not the release position */
         if (!touch_press_valid) return;
         touch_press_valid = false;
 
         lv_point_t point = touch_press_point;
 
-        /* Debounce: ignore rapid taps (overlay recreation can re-fire events) */
+        /* Only left/right zones here — center was handled on PRESSED */
+        if (touch_in_center(&point)) return;
+
+        /* Debounce left/right (overlay recreation can re-fire events) */
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        if ((now - last_touch_switch_ms) < TOUCH_DEBOUNCE_MS) {
-            // ESP_LOGD("MAIN", "Touch debounced (%d,%d) — %lums since last switch",
-            //             point.x, point.y, now - last_touch_switch_ms);
-            return;
-        }
-
-        /* Center zone: route through double-tap detector */
-        if (touch_in_center(&point)) {
-            ESP_LOGD("MAIN", "Touch center tap (%d,%d) — select/double-tap", point.x, point.y);
-            process_select_tap();
-            return;
-        }
-
+        if ((now - last_touch_switch_ms) < TOUCH_DEBOUNCE_MS) return;
         last_touch_switch_ms = now;
 
         if (point.x < 180) {
-            ESP_LOGD("MAIN", "Touch left (%d,%d) — prev gauge", point.x, point.y);
-            handle_prev_gauge_input();
+            user_input_feed_prev();
         } else {
-            ESP_LOGD("MAIN", "Touch right (%d,%d) — next gauge", point.x, point.y);
-            handle_next_gauge_input();
+            user_input_feed_next();
         }
     } else if (code == LV_EVENT_LONG_PRESSED) {
-        /* Use the press position for center detection */
         lv_point_t point = touch_press_valid ? touch_press_point : (lv_point_t){0, 0};
         if (!touch_press_valid) {
             lv_indev_t *indev = lv_indev_get_act();
             lv_indev_get_point(indev, &point);
         }
+        touch_press_valid = false;
 
+        /* Cooling gauge: three long-press zones across the whole screen */
         if (current_gauge == GAUGE_COOLING) {
-            // Cooling gauge: three long-press zones across the whole screen
-            //   Top-left  (x < 180, y < 180) = toggle fan low  (over fan low icon)
-            //   Top-right (x >= 180, y < 180) = toggle fan high (over fan high icon)
-            //   Bottom    (y >= 180)          = toggle wading
-            ESP_LOGD("MAIN", "Long press cooling (%d,%d)", point.x, point.y);
             warning_beep_play(BEEP_SHORT);
-            select_tap_pending = false;
-            select_tap_time = 0;
-            touch_press_valid = false;
             if (point.y < 180) {
                 if (point.x < 180) {
                     ESP_LOGW("MAIN", "Touch long-press top-left — toggle fan low");
@@ -572,17 +526,8 @@ static void touch_event_handler(lv_event_t * e)
                 cooling_toggle_wading();
             }
         } else if (touch_in_center(&point)) {
-            ESP_LOGD("MAIN", "Long press center (%d,%d) — long-press action", point.x, point.y);
-            warning_beep_play(BEEP_SHORT);
-            // Cancel any pending single/double tap
-            select_tap_pending = false;
-            select_tap_time = 0;
-            // Consume press so SHORT_CLICKED won't also fire for this touch
-            touch_press_valid = false;
-            // Fire long-press action (same as select button long-press)
-            handle_select_action();
-        } else {
-            // ESP_LOGD("MAIN", "Long press ignored (%d,%d) — outside center zone", point.x, point.y);
+            /* Centre long-press → cancels pending tap and emits SELECT_LONG */
+            user_input_feed_select_long();
         }
     }
 }
@@ -668,6 +613,7 @@ static void enter_standby_mode(void)
         case GAUGE_CLOCK:         clock_cleanup(); break;
         case GAUGE_HORIZON:       artificial_horizon_cleanup(); break;
         case GAUGE_TILT:          tilt_cleanup(); break;
+        case GAUGE_INCLINE:       incline_cleanup(); break;
         case GAUGE_TIRE_PRESSURE: tire_pressure_cleanup(); ble_tpms_set_fast_scan(false); break;
         case GAUGE_BOOST:         boost_cleanup(); break;
         case GAUGE_COMPASS:       compass_cleanup(); break;
@@ -750,6 +696,10 @@ static void exit_standby_mode(void)
     // 7. Reset activity timestamp
     last_activity_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
+    // 8. Arm TPMS battery check (delayed — need BLE data first)
+    tpms_batt_check_pending = true;
+    tpms_batt_check_start = last_activity_time;
+    
     system_sleeping = false;
     ESP_LOGW("MAIN", "System active — clock displayed, WiFi+BLE resumed");
 }
@@ -766,9 +716,14 @@ void switch_gauge(gauge_type_t new_gauge)
     }
     
     if (new_gauge == current_gauge) {
-        // ESP_LOGD("MAIN", "Already on gauge %d, ignoring", new_gauge);
         return;
     }
+
+    user_input_reset();  /* Cancel pending double-taps etc. */
+    
+    /* Set input mode: DIRECT for settings (no double-tap), NORMAL for gauges */
+    user_input_set_mode(new_gauge == GAUGE_SETTINGS ?
+                        INPUT_MODE_DIRECT : INPUT_MODE_NORMAL);
     
     // Hide/cleanup current gauge
     switch (current_gauge) {
@@ -783,6 +738,10 @@ void switch_gauge(gauge_type_t new_gauge)
         case GAUGE_TILT:
             ESP_LOGD("MAIN", "Cleaning up tilt");
             tilt_cleanup();
+            break;
+        case GAUGE_INCLINE:
+            ESP_LOGD("MAIN", "Cleaning up incline");
+            incline_cleanup();
             break;
         case GAUGE_TIRE_PRESSURE:
             ESP_LOGD("MAIN", "Cleaning up tire pressure");
@@ -804,6 +763,10 @@ void switch_gauge(gauge_type_t new_gauge)
         case GAUGE_COOLING:
             ESP_LOGD("MAIN", "Cleaning up cooling gauge");
             cooling_cleanup();
+            break;
+        case GAUGE_SETTINGS:
+            ESP_LOGD("MAIN", "Cleaning up settings screen");
+            settings_screen_cleanup();
             break;
         default:
             break;
@@ -835,6 +798,11 @@ void switch_gauge(gauge_type_t new_gauge)
             tilt_init();
             tilt_set_night_mode(test_night_mode);
             break;
+        case GAUGE_INCLINE:
+            ESP_LOGD("MAIN", "Initializing incline (%s mode)", test_night_mode ? "night" : "day");
+            incline_init();
+            incline_set_night_mode(test_night_mode);
+            break;
         case GAUGE_TIRE_PRESSURE:
             ESP_LOGD("MAIN", "Initializing tire pressure (%s mode)", test_night_mode ? "night" : "day");
             tire_pressure_init();
@@ -861,6 +829,11 @@ void switch_gauge(gauge_type_t new_gauge)
             cooling_init();
             cooling_set_night_mode(test_night_mode);
             break;
+        case GAUGE_SETTINGS:
+            ESP_LOGD("MAIN", "Initializing settings screen (%s mode)", test_night_mode ? "night" : "day");
+            settings_screen_set_night_mode(test_night_mode);
+            settings_screen_init();
+            break;
         default:
             break;
     }
@@ -879,7 +852,8 @@ void switch_gauge(gauge_type_t new_gauge)
              current_gauge == GAUGE_BOOST ? "Boost" :
              current_gauge == GAUGE_COMPASS ? "Compass" :
              current_gauge == GAUGE_EGT ? "EGT" :
-             current_gauge == GAUGE_COOLING ? "Cooling" : "Unknown",
+             current_gauge == GAUGE_COOLING ? "Cooling" :
+             current_gauge == GAUGE_SETTINGS ? "Settings" : "Unknown",
              test_night_mode ? "night" : "day");
 }
 
@@ -975,6 +949,7 @@ void app_main(void)
     Audio_Init();
     warning_beep_init();  // Initialize beep system early (before any gauge)
     button_input_init();  // Initialize button input (works on all versions)
+    user_input_init();    // Unified input: combo, double-tap, auto-repeat
     LVGL_Init();   // returns the screen object
 
     // ********************* Gauge Displays *********************
@@ -993,11 +968,26 @@ void app_main(void)
     if (ble_tpms_init() == ESP_OK) {
         ESP_LOGI("MAIN", "BLE TPMS initialized (NimBLE)");
         
-        // Register known TPMS sensor MAC addresses (AIYATO sensors for Land Rover)
-        ble_tpms_register_sensor_str(TPMS_FRONT_LEFT,  "80:EA:CA:50:3A:51");
-        ble_tpms_register_sensor_str(TPMS_FRONT_RIGHT, "81:EA:CA:50:3B:6B");
-        ble_tpms_register_sensor_str(TPMS_REAR_LEFT,   "82:EA:CA:50:3B:13");
-        ble_tpms_register_sensor_str(TPMS_REAR_RIGHT,  "83:EA:CA:50:3B:6C");
+        // Register TPMS sensors: use NVS-saved MACs if available, otherwise hardcoded defaults
+        static const char *default_macs[TPMS_POSITION_COUNT] = {
+            "80:EA:CA:50:3A:51",  // FL
+            "81:EA:CA:50:3B:6B",  // FR
+            "82:EA:CA:50:3B:13",  // RL
+            "83:EA:CA:50:3B:6C",  // RR
+        };
+        for (int i = 0; i < TPMS_POSITION_COUNT; i++) {
+            uint8_t mac[6];
+            if (settings_get_tpms_mac((tpms_position_t)i, mac)) {
+                ble_tpms_register_sensor((tpms_position_t)i, mac);
+                ESP_LOGI("MAIN", "TPMS %s: NVS MAC %02X:%02X:%02X:%02X:%02X:%02X",
+                         i==0?"FL":i==1?"FR":i==2?"RL":"RR",
+                         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+            } else {
+                ble_tpms_register_sensor_str((tpms_position_t)i, default_macs[i]);
+                ESP_LOGI("MAIN", "TPMS %s: default MAC %s", 
+                         i==0?"FL":i==1?"FR":i==2?"RL":"RR", default_macs[i]);
+            }
+        }
         
         // Register callback to update tire pressure gauge display
         ble_tpms_register_callback(tpms_update_cb);
@@ -1145,130 +1135,76 @@ void app_main(void)
             wifi_ntp_start();
         }
 
-        // Combo-press: next+prev held together = select (works with or without expansion board)
-        // Uses a tolerance window so both buttons don't need to be pressed at the exact same instant.
+        // *** Unified input: buttons, expansion board, touch → event dispatch ***
         {
-            bool next_held = button_input_next_held();
-            bool prev_held = button_input_prev_held();
-            bool both_now = next_held && prev_held;
-            uint32_t now_cb = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            input_event_t evt;
+            while ((evt = user_input_poll()) != INPUT_NONE) {
+                uint32_t inp_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                last_activity_time = inp_now;
+                if (temp_wake_active) temp_wake_start = inp_now;
 
-            // If waiting for second button and it arrived (or both now held)
-            if (combo_waiting && both_now) {
-                combo_waiting = false;
-                combo_active = true;
-                select_held = true;
-                select_held_since = combo_wait_start;  // Time from first button
-                select_long_fired = false;
-                // Consume any pending edge-triggered presses
-                button_input_pressed();
-                button_input_prev_pressed();
-            }
-            // Tolerance window expired — commit to the single button that was pressed
-            else if (combo_waiting && (now_cb - combo_wait_start) >= COMBO_TOLERANCE_MS) {
-                combo_waiting = false;
-                if (combo_wait_next) {
-                    handle_next_gauge_input();
+                if (current_gauge == GAUGE_SETTINGS) {
+                    /* ── Settings screen dispatch ────────────────────── */
+                    bool editing = settings_screen_editing();
+                    switch (evt) {
+                    case INPUT_NEXT:
+                        if (editing) settings_screen_char_change(+1);
+                        else settings_screen_navigate(+1);
+                        break;
+                    case INPUT_PREV:
+                        if (editing) settings_screen_char_change(-1);
+                        else settings_screen_navigate(-1);
+                        break;
+                    case INPUT_SELECT:
+                        if (editing) settings_screen_navigate(+1);  /* advance cursor */
+                        else {
+                            settings_screen_select();
+                            if (settings_screen_wants_exit()) switch_gauge(GAUGE_CLOCK);
+                        }
+                        break;
+                    case INPUT_SELECT_LONG:
+                        settings_screen_select();  /* confirm / done */
+                        if (settings_screen_wants_exit()) switch_gauge(GAUGE_CLOCK);
+                        break;
+                    default:
+                        break;
+                    }
                 } else {
-                    handle_prev_gauge_input();
-                }
-            }
-            // Already in combo mode — track long-press
-            else if (combo_active) {
-                if (both_now && !select_long_fired) {
-                    uint32_t held_ms = now_cb - select_held_since;
-                    if (held_ms >= SELECT_LONG_PRESS_MS) {
-                        select_long_fired = true;
-                        select_tap_pending = false;
-                        select_tap_time = 0;
-                        warning_beep_play(BEEP_SHORT);
+                    /* ── Normal gauge dispatch ───────────────────────── */
+                    switch (evt) {
+                    case INPUT_NEXT:
+                        handle_next_gauge_input();
+                        break;
+                    case INPUT_PREV:
+                        handle_prev_gauge_input();
+                        break;
+                    case INPUT_SELECT:
+                        /* Single tap — no action for normal gauges */
+                        break;
+                    case INPUT_SELECT_DOUBLE:
+                        if (current_gauge == GAUGE_CLOCK) {
+                            ESP_LOGW("MAIN", "Double-tap on clock — entering settings");
+                            switch_gauge(GAUGE_SETTINGS);
+                        } else {
+                            ESP_LOGW("MAIN", "Double-tap select — jumping to clock");
+                            manual_switch_time = inp_now;
+                            alarm_auto_switched = false;
+                            switch_gauge(GAUGE_CLOCK);
+                        }
+                        break;
+                    case INPUT_SELECT_LONG:
                         if (current_gauge == GAUGE_COOLING) {
-                            ESP_LOGW("MAIN", "Combo long-press — toggle wading");
                             cooling_toggle_wading();
                         } else {
                             handle_select_action();
                         }
+                        break;
+                    default:
+                        break;
                     }
-                } else if (!both_now) {
-                    // One or both buttons released — end combo
-                    if (!select_long_fired) {
-                        process_select_tap();  // Short combo press = tap
-                    }
-                    combo_active = false;
-                    select_held = false;
-                    button_input_pressed();
-                    button_input_prev_pressed();
-                }
-            }
-            // Not in combo and not waiting — check for individual button edges
-            else if (!combo_waiting) {
-                bool next_edge = button_input_pressed();
-                bool prev_edge = button_input_prev_pressed();
-
-                if (next_edge && prev_edge) {
-                    // Both fired on the same poll — go straight to combo
-                    combo_active = true;
-                    select_held = true;
-                    select_held_since = now_cb;
-                    select_long_fired = false;
-                } else if (next_edge) {
-                    // Next pressed first — wait for prev within tolerance
-                    combo_waiting = true;
-                    combo_wait_start = now_cb;
-                    combo_wait_next = true;
-                } else if (prev_edge) {
-                    // Prev pressed first — wait for next within tolerance
-                    combo_waiting = true;
-                    combo_wait_start = now_cb;
-                    combo_wait_next = false;
                 }
             }
         }
-
-        // Check for button press (GPIO0 boot button or GPIO43 next) — only when combo not active
-        // (Individual presses are handled inside combo block above when combo detection is in play)
-
-        // Check expansion board select button — single tap = action, double tap = clock
-        if (expansion_board_detected() && exbd_select_pressed()) {
-            if (!select_long_fired) {  // Ignore edge if long-press already fired this hold
-                process_select_tap();
-            }
-        }
-        
-        // Long-press detection for select button (e.g. wading toggle on cooling gauge)
-        if (expansion_board_detected()) {
-            bool btn_now = exbd_get_input(EXBD_INPUT_SELECT);
-            uint32_t now_lp = xTaskGetTickCount() * portTICK_PERIOD_MS;
-            if (btn_now && !select_held) {
-                // Button just pressed — start tracking
-                select_held = true;
-                select_held_since = now_lp;
-                select_long_fired = false;
-            } else if (btn_now && select_held && !select_long_fired) {
-                // Button still held — check duration
-                if ((now_lp - select_held_since) >= SELECT_LONG_PRESS_MS) {
-                    select_long_fired = true;
-                    // Cancel any pending single/double tap
-                    select_tap_pending = false;
-                    select_tap_time = 0;
-                    // Beep to confirm long-press accepted
-                    warning_beep_play(BEEP_SHORT);
-                    // Fire long-press action
-                    if (current_gauge == GAUGE_COOLING) {
-                        ESP_LOGW("MAIN", "Select long-press — toggle wading");
-                        cooling_toggle_wading();
-                    } else {
-                        handle_select_action();
-                    }
-                }
-            } else if (!btn_now && select_held) {
-                // Button released
-                select_held = false;
-            }
-        }
-        
-        // Check if deferred single-tap expired (fires gauge action after 400ms)
-        check_select_tap_timeout();
         
         // Night mode handling:
         // With expansion board: follow lights input
@@ -1284,11 +1220,13 @@ void app_main(void)
                     case GAUGE_CLOCK:         clock_set_night_mode(test_night_mode); break;
                     case GAUGE_HORIZON:       artificial_horizon_set_night_mode(test_night_mode); break;
                     case GAUGE_TILT:          tilt_set_night_mode(test_night_mode); break;
+                    case GAUGE_INCLINE:       incline_set_night_mode(test_night_mode); break;
                     case GAUGE_TIRE_PRESSURE: tire_pressure_set_night_mode(test_night_mode); break;
                     case GAUGE_BOOST:         boost_set_night_mode(test_night_mode); break;
                     case GAUGE_COMPASS:       compass_set_night_mode(test_night_mode); break;
                     case GAUGE_EGT:           egt_set_night_mode(test_night_mode); break;
                     case GAUGE_COOLING:       cooling_set_night_mode(test_night_mode); break;
+                    case GAUGE_SETTINGS:      settings_screen_set_night_mode(test_night_mode); break;
                     default: break;
                 }
             }
@@ -1300,6 +1238,7 @@ void app_main(void)
             switch (current_gauge) {
                 case GAUGE_CLOCK:         clock_set_night_mode(false); break;
                 case GAUGE_TILT:          tilt_set_night_mode(false); break;
+                case GAUGE_INCLINE:       incline_set_night_mode(false); break;
                 case GAUGE_TIRE_PRESSURE: tire_pressure_set_night_mode(false); break;
                 default: break;
             }
@@ -1387,6 +1326,16 @@ void app_main(void)
             }
         }
 
+        // Update incline gauge with IMU pitch data (~15 FPS)
+        if (current_gauge == GAUGE_INCLINE) {
+            static uint32_t last_incline_redraw_ms = 0;
+            uint32_t incl_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((incl_now - last_incline_redraw_ms) >= 66) {  // ~15 FPS
+                last_incline_redraw_ms = incl_now;
+                incline_set_angle(imu_get_pitch());
+            }
+        }
+
         // Update cooling gauge with expansion board input states (~10 Hz)
         if (current_gauge == GAUGE_COOLING && expansion_board_detected()) {
             static uint32_t last_cooling_ms = 0;
@@ -1395,6 +1344,11 @@ void app_main(void)
                 last_cooling_ms = cool_now;
                 cooling_update();
             }
+        }
+
+        // Update settings screen (TPMS learn scanning animation etc.)
+        if (current_gauge == GAUGE_SETTINGS) {
+            settings_screen_update();
         }
 
         // Read coolant temperature from ADS1115 AIN1 (~2 Hz, always when not on boost)
@@ -1426,6 +1380,47 @@ void app_main(void)
 
         // *** Auto-switch alarm system — checks tilt, EGT, TPMS in priority order ***
         check_auto_switch_alarms();
+
+        // *** Inactivity timeout — return to Clock after 10 minutes of no interaction ***
+        if (ignition_on && !system_sleeping && current_gauge != GAUGE_CLOCK && !alarm_auto_switched) {
+            uint32_t inact_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((inact_now - last_activity_time) >= INACTIVITY_TIMEOUT_MS) {
+                ESP_LOGW("MAIN", "Inactivity timeout (%d min) — returning to Clock",
+                         INACTIVITY_TIMEOUT_MS / 60000);
+                last_activity_time = inact_now;  // Reset so it doesn't re-trigger
+                manual_switch_time = inact_now;
+                switch_gauge(GAUGE_CLOCK);
+            }
+        }
+
+        // *** TPMS battery check — runs once after ignition ON, with 1-hour cooldown ***
+        if (tpms_batt_check_pending) {
+            uint32_t batt_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if ((batt_now - tpms_batt_check_start) >= TPMS_BATT_CHECK_DELAY_MS) {
+                tpms_batt_check_pending = false;  // One-shot: don't check again
+                if (ble_tpms_any_sensor_present() &&
+                    ble_tpms_any_low_battery(TPMS_BATT_RED_THRESHOLD)) {
+                    // Check 1-hour cooldown
+                    if (tpms_batt_last_alarm_ms == 0 ||
+                        (batt_now - tpms_batt_last_alarm_ms) >= TPMS_BATT_COOLDOWN_MS) {
+                        tpms_batt_last_alarm_ms = batt_now;
+                        ESP_LOGW("ALARM", "TPMS battery low — switching to tire pressure gauge");
+                        Play_Music("/sdcard", "tirebat.mp3");
+                        // Use alarm auto-switch mechanism for normal handling/timeouts
+                        if (!alarm_auto_switched) {
+                            alarm_previous_gauge = current_gauge;
+                        }
+                        alarm_auto_switched = true;
+                        alarm_cleared_time = 0;
+                        manual_switch_time = batt_now;
+                        last_activity_time = batt_now;
+                        switch_gauge(GAUGE_TIRE_PRESSURE);
+                    } else {
+                        ESP_LOGI("ALARM", "TPMS battery low — cooldown active, skipping");
+                    }
+                }
+            }
+        }
 
         // Handle pending auto-switch requests from Driver_Loop (thread-safe)
         if (pending_switch != GAUGE_COUNT) {

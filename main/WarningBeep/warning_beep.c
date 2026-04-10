@@ -129,11 +129,11 @@ static void warning_task(void *pvParameters)
         
         // Play the appropriate MP3 based on warning level
         if (current_warning_level == WARNING_LEVEL_RED) {
-            ESP_LOGD(TAG, "Playing DangerRoll.mp3");
-            Play_Music("/sdcard", "DANGE~24.MP3");
+            ESP_LOGD(TAG, "Playing dangroll.mp3");
+            Play_Music("/sdcard", "dangroll.mp3");
         } else if (current_warning_level == WARNING_LEVEL_YELLOW) {
-            ESP_LOGD(TAG, "Playing WarningRoll.mp3");
-            Play_Music("/sdcard", "WARNI~26.MP3");
+            ESP_LOGD(TAG, "Playing warnroll.mp3");
+            Play_Music("/sdcard", "warnroll.mp3");
         }
         
         // Wait for MP3 to finish playing (poll audio player state)

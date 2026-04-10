@@ -66,6 +66,74 @@ void settings_save_egt_units(bool use_celsius);
  */
 void settings_save_tilt_offset(float offset_deg);
 
+/**
+ * @brief Save incline gauge zero-offset to NVS
+ * @param offset_deg  The zero-offset angle in degrees
+ */
+void settings_save_incline_offset(float offset_deg);
+
+/**
+ * @brief Save incline gauge display mode to NVS
+ * @param mode  0=degrees, 1=1-in-X, 2=% slope
+ */
+void settings_save_incline_mode(uint8_t mode);
+
+/*******************************************************************************
+ * WiFi credentials — stored in NVS, getters return "" if not configured
+ ******************************************************************************/
+
+void settings_save_wifi_home(const char *ssid, const char *pass);
+void settings_save_wifi_phone(const char *ssid, const char *pass);
+
+const char *settings_get_wifi_home_ssid(void);
+const char *settings_get_wifi_home_pass(void);
+const char *settings_get_wifi_phone_ssid(void);
+const char *settings_get_wifi_phone_pass(void);
+
+/*******************************************************************************
+ * TPMS sensor MAC addresses — stored as 6-byte blobs in NVS
+ ******************************************************************************/
+
+#include "BLE_TPMS/ble_tpms.h"
+
+/**
+ * @brief Save a single TPMS sensor MAC to NVS
+ */
+void settings_save_tpms_mac(tpms_position_t pos, const uint8_t *mac);
+
+/**
+ * @brief Save all valid TPMS MACs to NVS in one commit
+ */
+void settings_save_all_tpms_macs(void);
+
+/**
+ * @brief Get a stored TPMS MAC address
+ * @return true if MAC was found in NVS, false if not configured
+ */
+bool settings_get_tpms_mac(tpms_position_t pos, uint8_t *mac_out);
+
+/*******************************************************************************
+ * Timezone — POSIX TZ with automatic DST
+ ******************************************************************************/
+
+/** Apply the current timezone to the C library (setenv + tzset) */
+void settings_apply_timezone(void);
+
+/** Save timezone selection to NVS and apply immediately */
+void settings_save_timezone(uint8_t idx);
+
+/** @return current timezone table index */
+uint8_t settings_get_timezone_index(void);
+
+/** @return number of entries in the timezone table */
+int settings_get_timezone_count(void);
+
+/** @return friendly name for a timezone index */
+const char *settings_get_timezone_name(int idx);
+
+/** @return true if timezone has been explicitly configured */
+bool settings_timezone_configured(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -4,7 +4,7 @@
 
 The Landy Gauge is a compact round instrument display designed for Land Rover vehicles. It features a 360×360 pixel circular screen with touch input, physical navigation buttons, and an expansion board for vehicle signal inputs and outputs.
 
-The gauge provides seven display screens that cycle in order:
+The gauge provides eight display screens that cycle in order:
 
 1. **Clock**
 2. **Boost** (turbo boost pressure)
@@ -12,7 +12,8 @@ The gauge provides seven display screens that cycle in order:
 4. **Cooling** (fan status, coolant level, coolant temperature)
 5. **Tire Pressure** (BLE TPMS)
 6. **Tilt** (vehicle roll angle / inclinometer)
-7. **Compass** (magnetic heading)
+7. **Incline** (vehicle pitch angle)
+8. **Compass** (magnetic heading)
 
 Gauges that require the expansion board (Boost, EGT, Compass, Cooling) are automatically skipped if the expansion board is not detected.
 
@@ -35,9 +36,10 @@ The circular screen is divided into touch zones:
 
 - **Tap left half** — Switch to the previous gauge
 - **Tap right half** — Switch to the next gauge
-- **Tap centre** (within the central circle) — Gauge-specific action (see individual gauge sections below)
 - **Double-tap centre** — Jump directly to the Clock gauge from any screen
-- **Long press centre** — Gauge-specific long-press action (see individual gauge sections below)
+- **Long press centre** — Gauge-specific action (see individual gauge sections below)
+
+> **Note:** Single taps on the centre zone only trigger the double-tap-to-clock detection. All gauge-specific actions require a long press.
 
 > **Note:** On the Cooling gauge, the long-press zones are different — see the Cooling section for details.
 
@@ -48,16 +50,18 @@ Three physical buttons are available on the Waveshare board:
 - **Next button (GPIO43)** — Switch to the next gauge
 - **Previous button (GPIO44)** — Switch to the previous gauge
 - **Boot button (GPIO0)** — Also functions as a next gauge button
+- **Next + Previous held together** — Emulates the expansion board select button (including double-tap-to-clock and long-press actions). A 150 ms tolerance window means you don't need to press both buttons at the exact same instant.
 
 ### Expansion Board Select Button
 
 The expansion board provides an additional select button:
 
-- **Single tap** — Gauge-specific action (same as touch centre tap)
 - **Double tap** — Jump to the Clock gauge
-- **Long press (hold for 1 second)** — Gauge-specific long-press action. On the Cooling gauge this toggles wading mode.
+- **Long press (hold for 1 second)** — Gauge-specific action (see individual gauge sections below). On the Cooling gauge this toggles wading mode.
 
 A short beep confirms when a long press is accepted.
+
+> **Note:** A single tap on the select button is ignored unless followed by a second tap within the double-tap window.
 
 ---
 
@@ -72,13 +76,19 @@ The gauge monitors the vehicle ignition state through the expansion board:
 
 ### Temporary Wake
 
-When the ignition is off, touching the screen or pressing the expansion board select button will temporarily wake the display for **5 minutes**. After 5 minutes of ignition-off operation, the gauge returns to standby.
+When the ignition is off, any of the following will temporarily wake the display for **5 minutes**:
+
+- Touching the screen
+- Pressing the expansion board select button
+- Holding both physical buttons (Next + Previous) simultaneously
+
+After 5 minutes of ignition-off operation, the gauge returns to standby. Any interaction during the temporary wake resets the 5-minute timer.
 
 If the ignition comes on during a temporary wake, the gauge stays active permanently.
 
 ### Inactivity Timeout
 
-After **5 minutes** of inactivity (no touch or button input) with the ignition on, the gauge automatically returns to the Clock screen.
+After **10 minutes** of inactivity (no touch or button input) with the ignition on, the gauge automatically returns to the Clock screen.
 
 ---
 
@@ -107,7 +117,7 @@ Displays turbo boost pressure on an analogue dial gauge. The sensor is a 2-bar M
 - **Warning zone:** Above 1.5 Bar — the needle and tick marks turn red/orange
 - **Vacuum is not shown** — negative pressure reads as zero
 
-**Centre tap action:** Toggle display units between **Bar** and **PSI**. The preference is saved and persists across reboots.
+**Long press action:** Toggle display units between **Bar** and **PSI**. The preference is saved and persists across reboots.
 
 <!-- IMAGE: Boost gauge screenshot -->
 
@@ -121,9 +131,14 @@ Displays exhaust gas temperature from an MCP9600 thermocouple converter on the e
 - **Warning (yellow):** Above 680°C / 1256°F
 - **Danger (red):** Above 750°C / 1382°F
 
-When the EGT reaches the danger threshold, the gauge will automatically switch to the EGT screen if you are viewing another gauge, accompanied by an audio alert.
+Audio alerts play when entering each zone:
 
-**Centre tap action:** Toggle display units between **°C** and **°F**. The preference is saved and persists across reboots.
+- **Warning (680°C):** Plays egtwar.mp3 once
+- **Danger (750°C):** Plays egtdang.mp3 once
+
+When the EGT reaches the warning or danger threshold, the gauge will automatically switch to the EGT screen if you are viewing another gauge.
+
+**Long press action:** Toggle display units between **°C** and **°F**. The preference is saved and persists across reboots.
 
 <!-- IMAGE: EGT gauge screenshot -->
 
@@ -167,7 +182,9 @@ Press and hold over the fan low or fan high icon to manually activate or deactiv
 - **Fan Low** — Controls expansion board output GPA1
 - **Fan High** — Controls expansion board output GPA2
 
-Audio confirmation plays when toggling (fanLowOn.mp3 / fanLowOff.mp3, fanHighOn.mp3 / fanHighOff.mp3).
+Audio confirmation plays when toggling (fanLowOn.mp3 / flooff.mp3, fhion.mp3 / fhioff.mp3).
+
+Manual fan overrides automatically turn off after **5 minutes** to prevent draining the vehicle battery. The off audio plays when the timeout expires.
 
 > **Important:** Manual fan override is **blocked while wading mode is active**. Fans cannot be manually toggled until wading mode is turned off.
 
@@ -202,9 +219,13 @@ The display shows a roof-view outline of the vehicle with pressure readings at e
 - **Rear Left** — bottom-left
 - **Rear Right** — bottom-right
 
-Each wheel position shows pressure, temperature, and battery percentage when data is available.
+Each wheel position shows pressure, temperature, and battery percentage when data is available. Battery percentage is colour-coded:
 
-**Centre tap action:** Cycle through display unit combinations:
+- **Red** — below 2%
+- **Yellow** — 2–5%
+- **Normal (white/green)** — above 5%
+
+**Long press action:** Cycle through display unit combinations:
 - BAR / °C
 - PSI / °C
 - BAR / °F
@@ -215,6 +236,8 @@ The preference is saved and persists across reboots.
 **Automatic alarm switch:** The gauge automatically switches to the Tire Pressure screen if:
 - Any tire drops below **15 PSI** (1.03 Bar)
 - A rapid pressure drop of **5 PSI or more within 60 seconds** is detected on any tire
+
+**Battery alarm on ignition:** When the ignition is turned on, the gauge waits 15 seconds for BLE sensor data to arrive, then checks all TPMS sensor batteries. If any battery is below **2%** (red zone), the gauge plays an audio warning and automatically switches to the Tire Pressure screen. This check only runs once per ignition cycle and will not retrigger within **1 hour**.
 
 > **Note:** BLE scanning runs continuously in the background. When viewing the Tire Pressure gauge, a faster scan rate is used for quicker updates.
 
@@ -230,7 +253,7 @@ Displays the vehicle's roll angle using the onboard IMU (Inertial Measurement Un
 - **Yellow warning zone:** 30°+ — triggers a warning audio alert
 - **Red danger zone:** 35°+ — triggers a danger audio alert with more frequent beeps
 
-**Centre tap action:** Zero the tilt gauge at the current angle. This sets the current physical orientation as the 0° reference point. Useful for calibrating on uneven ground. The offset is saved and persists across reboots.
+**Long press action:** Zero the tilt gauge at the current angle. This sets the current physical orientation as the 0° reference point. Useful for calibrating on uneven ground. The offset is saved and persists across reboots.
 
 **Automatic alarm switch:** The gauge automatically switches to the Tilt screen when roll exceeds 30°.
 
@@ -241,14 +264,42 @@ Displays the vehicle's roll angle using the onboard IMU (Inertial Measurement Un
 
 ---
 
-### 7. Compass
+### 7. Incline (Pitch Angle)
+
+Displays the vehicle's pitch angle (nose up/down) using the onboard IMU. A side-view image of the vehicle rotates to match the current pitch, with arc scales at the top and bottom of the display showing the inclination.
+
+- **Range:** ±45°
+- **No warning zones** — this gauge is informational only
+
+The arc scales feature graduated tick marks with small triangular pointers that track the current angle. The tick mark positions and labels change to match the selected display mode.
+
+**Long press action:** Cycle through three display unit modes:
+
+| Mode | Scale Labels | Example Ticks |
+|------|-------------|---------------|
+| **Degrees** | 15, 30, 45 | Degrees of inclination |
+| **1:X Gradient** | 1:3, 1:2, 1:1 | Rise-to-run ratio |
+| **% Slope** | 25%, 50%, 75%, 100% | Percentage grade |
+
+The selected mode is saved and persists across reboots.
+
+**Zeroing:** Not available via long press — zero calibration is performed on the Tilt gauge and applies the same IMU offset.
+
+> **Note:** A low-pass damping filter smooths the display for a steadier readout while driving on uneven terrain.
+
+<!-- IMAGE: Incline gauge screenshot (degrees mode) -->
+<!-- IMAGE: Incline gauge screenshot (percent mode) -->
+
+---
+
+### 8. Compass
 
 Displays a compass rose with the current magnetic heading from a LIS3MDL magnetometer on the expansion board. The compass card rotates to show cardinal (N, E, S, W) and intercardinal directions with a fixed heading indicator at top.
 
-**Centre tap action:** Toggle compass calibration mode:
+**Long press action:** Toggle compass calibration mode:
 
-1. **First tap** — Enters calibration mode. A "CALIBRATING" overlay appears. Slowly rotate the vehicle (or the gauge unit) through a full 360° in all orientations to allow the magnetometer to sample the full magnetic field.
-2. **Second tap** — Exits calibration mode. The hard-iron offsets and soft-iron scale factors are calculated, applied, and saved to permanent storage.
+1. **First long press** — Enters calibration mode. A "CALIBRATING" overlay appears. Slowly rotate the vehicle (or the gauge unit) through a full 360° in all orientations to allow the magnetometer to sample the full magnetic field.
+2. **Second long press** — Exits calibration mode. The hard-iron offsets and soft-iron scale factors are calculated, applied, and saved to permanent storage.
 
 The calibration data persists across reboots.
 
@@ -281,15 +332,20 @@ The gauge plays audio alerts through the onboard speaker for various events. Aud
 
 | Event | Audio File |
 |---|---|
-| Tilt warning (30°+) | WarningRoll.mp3 |
-| Tilt danger (35°+) | DangerRoll.mp3 |
+| Tilt warning (30°+) | warnroll.mp3 |
+| Tilt danger (35°+) | dangroll.mp3 |
+| EGT warning (680°C+) | egtwar.mp3 |
+| EGT danger (750°C+) | egtdang.mp3 |
 | Coolant overtemperature | overheat.mp3 |
+| Coolant level low | coollow.mp3 |
+| Tire pressure warning | tirewar.mp3 |
+| TPMS battery low | tirebat.mp3 |
 | Wading mode ON | wadeOn.mp3 |
 | Wading mode OFF | wadeOff.mp3 |
 | Fan Low manual ON | fanLowOn.mp3 |
-| Fan Low manual OFF | fanLowOff.mp3 |
-| Fan High manual ON | fanHighOn.mp3 |
-| Fan High manual OFF | fanHighOff.mp3 |
+| Fan Low manual OFF | flooff.mp3 |
+| Fan High manual ON | fhion.mp3 |
+| Fan High manual OFF | fhioff.mp3 |
 | Button/action confirmation | Short beep (internal) |
 
 ---
@@ -302,6 +358,8 @@ The following settings are saved to non-volatile storage (NVS) and persist acros
 - Tire pressure display mode (Bar/PSI, °C/°F)
 - EGT units (°C / °F)
 - Tilt zero-offset angle
+- Incline display mode (degrees / 1:X / % slope)
+- Incline zero-offset angle (shared with Tilt)
 - Compass calibration data (hard-iron offsets and soft-iron scales)
 - NTP last-sync timestamp (24-hour cooldown)
 
@@ -356,15 +414,16 @@ Settings are saved automatically when changed and restored at boot.
 | Next gauge | Tap right side of screen, or press Next button |
 | Previous gauge | Tap left side of screen, or press Prev button |
 | Jump to Clock | Double-tap centre of screen, or double-tap Select button |
-| Gauge action | Tap centre of screen, or tap Select button |
-| Long-press action | Long-press centre of screen, or hold Select button for 1 second |
+| Gauge action | Long-press centre of screen, or hold Select button for 1 second |
 | Toggle fan low (Cooling gauge) | Long-press top-left of screen (over fan low icon) |
 | Toggle fan high (Cooling gauge) | Long-press top-right of screen (over fan high icon) |
 | Toggle wading (Cooling gauge) | Long-press bottom half of screen, or hold Select button |
 | Force NTP sync (Clock gauge) | Long-press centre of clock (uses iPhone hotspot) |
-| Toggle boost units | Tap centre of boost gauge |
-| Toggle EGT units | Tap centre of EGT gauge |
-| Toggle TPMS units | Tap centre of tire pressure gauge |
-| Zero tilt gauge | Tap centre of tilt gauge |
-| Calibrate compass | Tap centre of compass gauge (tap again to finish) |
-| Wake from standby | Touch screen or press Select button (5-minute temporary wake) |
+| Toggle boost units | Long-press centre of boost gauge |
+| Toggle EGT units | Long-press centre of EGT gauge |
+| Toggle TPMS units | Long-press centre of tire pressure gauge |
+| Zero tilt gauge | Long-press centre of tilt gauge |
+| Cycle incline units | Long-press centre of incline gauge |
+| Calibrate compass | Long-press centre of compass gauge (long-press again to finish) |
+| Emulate Select button | Hold Next + Previous buttons together |
+| Wake from standby | Touch screen, press Select button, or hold both physical buttons (5-minute temporary wake) |

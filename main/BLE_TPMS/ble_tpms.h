@@ -149,6 +149,13 @@ tpms_position_t ble_tpms_get_pressure_drop_position(void);
 bool ble_tpms_any_sensor_present(void);
 
 /**
+ * @brief Check if any TPMS sensor battery is below threshold
+ * @param threshold_percent Battery percentage threshold (e.g. 2 for red zone)
+ * @return true if any valid sensor has battery below threshold
+ */
+bool ble_tpms_any_low_battery(uint8_t threshold_percent);
+
+/**
  * @brief Check if BLE TPMS is currently scanning
  * @return true if scanning active
  */
@@ -192,6 +199,38 @@ void ble_tpms_resume_scan(void);
  * @return String like "FL", "FR", "RL", "RR"
  */
 const char* ble_tpms_position_str(tpms_position_t position);
+
+/*******************************************************************************
+ * Learn mode — pair sensors by removing them from tires in sequence
+ ******************************************************************************/
+
+/** Start learn mode. Unregisters sensors temporarily, enables fast scan. */
+void ble_tpms_learn_start(void);
+
+/** Stop learn mode and restore previous state. */
+void ble_tpms_learn_stop(void);
+
+/** @return true if learn mode is active */
+bool ble_tpms_learn_active(void);
+
+/** @return which tire position is currently being learned */
+tpms_position_t ble_tpms_learn_current_position(void);
+
+/**
+ * @brief Check if a sensor removal was detected (pressure → 0).
+ * @param mac_out  If non-NULL and result is ready, receives the 6-byte MAC
+ * @return true if a sensor was detected
+ */
+bool ble_tpms_learn_check_result(uint8_t *mac_out);
+
+/** Accept the detected sensor for the current position and advance. */
+void ble_tpms_learn_accept(void);
+
+/** Skip the current position without assigning (keep old). */
+void ble_tpms_learn_skip(void);
+
+/** @return number of unregistered sensors discovered during learn mode */
+int ble_tpms_learn_discovered_count(void);
 
 #ifdef __cplusplus
 }

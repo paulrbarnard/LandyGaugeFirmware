@@ -47,6 +47,7 @@ static const char *TAG = "COOLING";
 static uint32_t coolant_low_accum_ms  = 0;   /* Accumulated settled-low time     */
 static uint32_t coolant_ok_accum_ms   = 0;   /* Accumulated settled-OK time      */
 static bool     coolant_confirmed_low = false; /* Filtered/confirmed alarm state */
+static bool     coolant_low_mp3_played = false; /* one-shot coolant-low MP3 flag */
 static uint32_t coolant_last_update_ms = 0;
 
 /* Previous pitch/roll for rate-of-change check */
@@ -113,6 +114,11 @@ static bool coolant_filter_update(bool raw_low, uint32_t dt_ms)
                 coolant_confirmed_low = true;
                 ESP_LOGW(TAG, "Coolant LOW confirmed after %lu ms settled-low",
                          (unsigned long)coolant_low_accum_ms);
+                if (!coolant_low_mp3_played) {
+                    coolant_low_mp3_played = true;
+                    Play_Music("/sdcard", "coollow.mp3");
+                    ESP_LOGW(TAG, "Playing coollow.mp3");
+                }
             }
         } else {
             /* Sensor says OK — accumulate settled-OK time, reset low counter */
@@ -121,6 +127,7 @@ static bool coolant_filter_update(bool raw_low, uint32_t dt_ms)
 
             if (coolant_confirmed_low && coolant_ok_accum_ms >= COOLANT_CLEAR_MS) {
                 coolant_confirmed_low = false;
+                coolant_low_mp3_played = false;
                 ESP_LOGI(TAG, "Coolant OK — alarm cleared after %lu ms settled-OK",
                          (unsigned long)coolant_ok_accum_ms);
             }
@@ -139,6 +146,9 @@ static bool wading_mode = false;
 /* ── Manual fan override state ──────────────────────────────────────── */
 static bool fan_low_override  = false;   /* Manual fan low via GPA1 */
 static bool fan_high_override = false;   /* Manual fan high via GPA2 */
+#define FAN_OVERRIDE_TIMEOUT_MS  (5UL * 60 * 1000)  /* 5 minutes */
+static uint32_t fan_low_override_start  = 0;  /* Timestamp when override activated */
+static uint32_t fan_high_override_start = 0;
 
 /* ── Cached input states (updated each cooling_update call) ─────────── */
 static bool fan_low_active  = false;
@@ -586,14 +596,32 @@ void cooling_update(void)
     if (!is_visible || !gauge_container) return;
     if (!exbd_has_io()) return;
 
-    /* Read expansion board inputs */
-    bool new_fan_low  = exbd_get_input(EXBD_INPUT_FAN_LOW);
-    bool new_fan_high = exbd_get_input(EXBD_INPUT_FAN_HIGH);
+    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+    /* Read expansion board inputs — OR with manual override so animation
+       runs whether the fan is activated by the vehicle or by the user. */
+    bool new_fan_low  = exbd_get_input(EXBD_INPUT_FAN_LOW)  || fan_low_override;
+    bool new_fan_high = exbd_get_input(EXBD_INPUT_FAN_HIGH) || fan_high_override;
+
+    /* ── Auto-timeout for manual fan overrides (5 minutes) ────────── */
+    if (fan_low_override && (now_ms - fan_low_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
+        fan_low_override = false;
+        if (exbd_has_io()) mcp23017_write_pin('A', 1, false);
+        ESP_LOGW(TAG, "Fan LOW override auto-off after %lu min", FAN_OVERRIDE_TIMEOUT_MS / 60000);
+        Play_Music("/sdcard", "flooff.mp3");
+        new_fan_low = exbd_get_input(EXBD_INPUT_FAN_LOW);
+    }
+    if (fan_high_override && (now_ms - fan_high_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
+        fan_high_override = false;
+        if (exbd_has_io()) mcp23017_write_pin('A', 2, false);
+        ESP_LOGW(TAG, "Fan HIGH override auto-off after %lu min", FAN_OVERRIDE_TIMEOUT_MS / 60000);
+        Play_Music("/sdcard", "fhioff.mp3");
+        new_fan_high = exbd_get_input(EXBD_INPUT_FAN_HIGH);
+    }
 
     /* Run coolant filter here too — cooling_alarm_active() is skipped by the
        alarm system when we're already on the cooling gauge. */
     bool raw_coolant_low = exbd_get_input(EXBD_INPUT_COOLANT_LO);
-    uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     uint32_t dt_ms = (coolant_last_update_ms > 0) ? (now_ms - coolant_last_update_ms) : 100;
     coolant_last_update_ms = now_ms;
     coolant_filter_update(raw_coolant_low, dt_ms);
@@ -697,6 +725,7 @@ void cooling_cleanup(void)
     coolant_low_accum_ms  = 0;
     coolant_ok_accum_ms   = 0;
     coolant_confirmed_low = false;
+    coolant_low_mp3_played = false;
     coolant_last_update_ms = 0;
 
     // ESP_LOGD(TAG, "Cooling gauge cleaned up");
@@ -763,6 +792,10 @@ void cooling_toggle_fan_low(void)
     fan_low_override = !fan_low_override;
     ESP_LOGW(TAG, "Manual fan LOW: %s", fan_low_override ? "ON" : "OFF");
 
+    if (fan_low_override) {
+        fan_low_override_start = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    }
+
     /* Control GPA1 on MCP23017 expansion board */
     if (exbd_has_io()) {
         mcp23017_write_pin('A', 1, fan_low_override);
@@ -773,7 +806,7 @@ void cooling_toggle_fan_low(void)
     if (fan_low_override) {
         Play_Music("/sdcard", "fanLowOn.mp3");
     } else {
-        Play_Music("/sdcard", "fanLowOff.mp3");
+        Play_Music("/sdcard", "flooff.mp3");
     }
 
     /* Update fan icon display */
@@ -791,6 +824,10 @@ void cooling_toggle_fan_high(void)
     fan_high_override = !fan_high_override;
     ESP_LOGW(TAG, "Manual fan HIGH: %s", fan_high_override ? "ON" : "OFF");
 
+    if (fan_high_override) {
+        fan_high_override_start = xTaskGetTickCount() * portTICK_PERIOD_MS;
+    }
+
     /* Control GPA2 on MCP23017 expansion board */
     if (exbd_has_io()) {
         mcp23017_write_pin('A', 2, fan_high_override);
@@ -799,9 +836,9 @@ void cooling_toggle_fan_high(void)
 
     /* Play notification MP3 */
     if (fan_high_override) {
-        Play_Music("/sdcard", "fanHighOn.mp3");
+        Play_Music("/sdcard", "fhion.mp3");
     } else {
-        Play_Music("/sdcard", "fanHighOff.mp3");
+        Play_Music("/sdcard", "fhioff.mp3");
     }
 
     /* Update fan icon display */
@@ -831,6 +868,22 @@ bool cooling_alarm_active(void)
     uint32_t dt_ms = (coolant_last_update_ms > 0) ? (now_ms - coolant_last_update_ms) : 100;
     coolant_last_update_ms = now_ms;
     coolant_filter_update(raw_coolant_low, dt_ms);
+
+    /* Auto-timeout manual fan overrides even when gauge is not visible */
+    if (fan_low_override && (now_ms - fan_low_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
+        fan_low_override = false;
+        mcp23017_write_pin('A', 1, false);
+        Play_Music("/sdcard", "flooff.mp3");
+        ESP_LOGW(TAG, "Fan LOW override auto-off (background) after %lu min",
+                 FAN_OVERRIDE_TIMEOUT_MS / 60000);
+    }
+    if (fan_high_override && (now_ms - fan_high_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
+        fan_high_override = false;
+        mcp23017_write_pin('A', 2, false);
+        Play_Music("/sdcard", "fhioff.mp3");
+        ESP_LOGW(TAG, "Fan HIGH override auto-off (background) after %lu min",
+                 FAN_OVERRIDE_TIMEOUT_MS / 60000);
+    }
 
     bool fl = exbd_get_input(EXBD_INPUT_FAN_LOW);
     /* FanHigh alone = aircon, not a cooling alarm.

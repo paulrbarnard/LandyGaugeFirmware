@@ -58,6 +58,23 @@ static tpms_update_callback_t update_callback = NULL;
 static bool initialized = false;
 static bool scanning = false;
 static bool scan_paused = false;  // True if scan was paused for SPI
+
+/* ── TPMS Learn Mode ──────────────────────────────────────────────── */
+#define TPMS_LEARN_MAX_DISCOVERED  8  // Max unregistered sensors we can track
+
+typedef struct {
+    uint8_t mac[6];
+    float   pressure_psi;
+    bool    valid;
+    uint32_t last_seen_ms;
+} tpms_discovered_t;
+
+static bool learn_mode_active = false;
+static tpms_position_t learn_current_position = TPMS_FRONT_LEFT;
+static tpms_discovered_t discovered_sensors[TPMS_LEARN_MAX_DISCOVERED] = {0};
+static int discovered_count = 0;
+static uint8_t learn_result_mac[6] = {0};  // MAC of sensor that went to zero
+static volatile bool learn_result_ready = false;
 static uint32_t last_scan_end_ms = 0;
 
 // Forward declarations
@@ -343,6 +360,16 @@ bool ble_tpms_any_sensor_present(void)
     return false;
 }
 
+bool ble_tpms_any_low_battery(uint8_t threshold_percent)
+{
+    for (int i = 0; i < TPMS_POSITION_COUNT; i++) {
+        if (sensor_data[i].valid && sensor_data[i].battery_percent < threshold_percent) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ble_tpms_check_pressure_drop_alarm(void)
 {
     return pressure_drop_alarm;
@@ -441,15 +468,54 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     // Find which tire this sensor belongs to
     tpms_position_t position = find_sensor_position(sensor_mac);
     
-    // If not registered, log it for discovery purposes
+    // If not registered, handle learn mode or log for discovery
     if (position >= TPMS_POSITION_COUNT) {
-        static uint32_t last_unknown_log = 0;
-        uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
-        if (now - last_unknown_log > 5000) { // Log every 5 seconds max
-            ESP_LOGD(TAG, "Unknown TPMS sensor: %02X:%02X:%02X:%02X:%02X:%02X (RSSI: %d)",
-                     sensor_mac[0], sensor_mac[1], sensor_mac[2],
-                     sensor_mac[3], sensor_mac[4], sensor_mac[5], rssi);
-            last_unknown_log = now;
+        // Extract pressure even for unknown sensors (needed for learn mode)
+        uint32_t unk_pressure_raw = manuf_data[8] | (manuf_data[9] << 8) |
+                                    (manuf_data[10] << 16) | (manuf_data[11] << 24);
+        float unk_psi = (unk_pressure_raw / 100000.0f) * 14.5038f;
+
+        if (learn_mode_active) {
+            // Track this sensor in discovered list
+            int slot = -1;
+            for (int i = 0; i < discovered_count; i++) {
+                if (memcmp(discovered_sensors[i].mac, sensor_mac, 6) == 0) {
+                    slot = i;
+                    break;
+                }
+            }
+            if (slot < 0 && discovered_count < TPMS_LEARN_MAX_DISCOVERED) {
+                slot = discovered_count++;
+                memcpy(discovered_sensors[slot].mac, sensor_mac, 6);
+                discovered_sensors[slot].valid = true;
+                ESP_LOGI(TAG, "Learn: discovered sensor %02X:%02X:%02X:%02X:%02X:%02X (%.1f PSI)",
+                         sensor_mac[0], sensor_mac[1], sensor_mac[2],
+                         sensor_mac[3], sensor_mac[4], sensor_mac[5], unk_psi);
+            }
+            if (slot >= 0) {
+                float prev_psi = discovered_sensors[slot].pressure_psi;
+                discovered_sensors[slot].pressure_psi = unk_psi;
+                discovered_sensors[slot].last_seen_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+                // Detect sensor removal: pressure drops to near zero (< 2 PSI)
+                // and it previously had a real reading (> 10 PSI)
+                if (prev_psi > 10.0f && unk_psi < 2.0f && !learn_result_ready) {
+                    memcpy(learn_result_mac, sensor_mac, 6);
+                    learn_result_ready = true;
+                    ESP_LOGW(TAG, "Learn: sensor %02X:%02X:%02X:%02X:%02X:%02X pressure dropped to %.1f PSI!",
+                             sensor_mac[0], sensor_mac[1], sensor_mac[2],
+                             sensor_mac[3], sensor_mac[4], sensor_mac[5], unk_psi);
+                }
+            }
+        } else {
+            static uint32_t last_unknown_log = 0;
+            uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if (now - last_unknown_log > 5000) {
+                ESP_LOGD(TAG, "Unknown TPMS sensor: %02X:%02X:%02X:%02X:%02X:%02X (RSSI: %d)",
+                         sensor_mac[0], sensor_mac[1], sensor_mac[2],
+                         sensor_mac[3], sensor_mac[4], sensor_mac[5], rssi);
+                last_unknown_log = now;
+            }
         }
         return;
     }
@@ -515,4 +581,105 @@ static void process_tpms_data(const uint8_t *manuf_data, size_t len, int8_t rssi
     if (update_callback != NULL) {
         update_callback(position, data);
     }
+}
+
+/*******************************************************************************
+ * Learn mode API
+ ******************************************************************************/
+
+void ble_tpms_learn_start(void)
+{
+    /* Temporarily unregister all sensors so they appear as "unknown" and get
+       tracked in the discovered list.  We keep a backup to restore on cancel. */
+    learn_mode_active = true;
+    learn_current_position = TPMS_FRONT_LEFT;
+    learn_result_ready = false;
+    discovered_count = 0;
+    memset(discovered_sensors, 0, sizeof(discovered_sensors));
+
+    /* Unregister existing sensors so the scan callback routes them through
+       the learn-mode discovery path instead of the normal data path. */
+    for (int i = 0; i < TPMS_POSITION_COUNT; i++) {
+        sensor_registered[i] = false;
+    }
+
+    /* Switch to fast scanning for responsive learn */
+    ble_tpms_set_fast_scan(true);
+
+    ESP_LOGW(TAG, "Learn mode started — remove FRONT LEFT sensor");
+}
+
+void ble_tpms_learn_stop(void)
+{
+    learn_mode_active = false;
+    ble_tpms_set_fast_scan(false);
+    ESP_LOGI(TAG, "Learn mode stopped");
+}
+
+bool ble_tpms_learn_active(void)
+{
+    return learn_mode_active;
+}
+
+tpms_position_t ble_tpms_learn_current_position(void)
+{
+    return learn_current_position;
+}
+
+bool ble_tpms_learn_check_result(uint8_t *mac_out)
+{
+    if (!learn_result_ready) return false;
+    if (mac_out) memcpy(mac_out, learn_result_mac, 6);
+    return true;
+}
+
+void ble_tpms_learn_accept(void)
+{
+    if (!learn_result_ready) return;
+
+    /* Register the learned MAC for the current position */
+    ble_tpms_register_sensor(learn_current_position, learn_result_mac);
+    ESP_LOGW(TAG, "Learn: assigned %02X:%02X:%02X:%02X:%02X:%02X to %s",
+             learn_result_mac[0], learn_result_mac[1], learn_result_mac[2],
+             learn_result_mac[3], learn_result_mac[4], learn_result_mac[5],
+             ble_tpms_position_str(learn_current_position));
+
+    /* Remove accepted sensor from discovered list so it won't re-trigger */
+    for (int i = 0; i < discovered_count; i++) {
+        if (memcmp(discovered_sensors[i].mac, learn_result_mac, 6) == 0) {
+            discovered_sensors[i].valid = false;
+            break;
+        }
+    }
+
+    learn_result_ready = false;
+
+    /* Advance to next position */
+    learn_current_position++;
+    if (learn_current_position >= TPMS_POSITION_COUNT) {
+        /* All four learned — done */
+        learn_mode_active = false;
+        ble_tpms_set_fast_scan(false);
+        ESP_LOGW(TAG, "Learn mode complete — all 4 sensors paired");
+    } else {
+        ESP_LOGW(TAG, "Learn: now remove %s sensor",
+                 ble_tpms_position_str(learn_current_position));
+    }
+}
+
+void ble_tpms_learn_skip(void)
+{
+    /* Skip current position (keep existing registration), advance */
+    learn_result_ready = false;
+    learn_current_position++;
+    if (learn_current_position >= TPMS_POSITION_COUNT) {
+        learn_mode_active = false;
+        ble_tpms_set_fast_scan(false);
+        ESP_LOGW(TAG, "Learn mode complete");
+    }
+}
+
+int ble_tpms_learn_discovered_count(void)
+{
+    return discovered_count;
 }
