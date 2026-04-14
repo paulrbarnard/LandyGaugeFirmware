@@ -606,14 +606,14 @@ void cooling_update(void)
     /* ── Auto-timeout for manual fan overrides (5 minutes) ────────── */
     if (fan_low_override && (now_ms - fan_low_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
         fan_low_override = false;
-        if (exbd_has_io()) mcp23017_write_pin('A', 1, false);
+        if (exbd_has_io()) mcp23017_write_pin('A', 3, false);
         ESP_LOGW(TAG, "Fan LOW override auto-off after %lu min", FAN_OVERRIDE_TIMEOUT_MS / 60000);
         Play_Music("/sdcard", "flooff.mp3");
         new_fan_low = exbd_get_input(EXBD_INPUT_FAN_LOW);
     }
     if (fan_high_override && (now_ms - fan_high_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
         fan_high_override = false;
-        if (exbd_has_io()) mcp23017_write_pin('A', 2, false);
+        if (exbd_has_io()) mcp23017_write_pin('A', 4, false);
         ESP_LOGW(TAG, "Fan HIGH override auto-off after %lu min", FAN_OVERRIDE_TIMEOUT_MS / 60000);
         Play_Music("/sdcard", "fhioff.mp3");
         new_fan_high = exbd_get_input(EXBD_INPUT_FAN_HIGH);
@@ -740,20 +740,20 @@ void cooling_toggle_wading(void)
     if (wading_mode) {
         if (fan_low_override) {
             fan_low_override = false;
-            if (exbd_has_io()) mcp23017_write_pin('A', 1, false);
+            if (exbd_has_io()) mcp23017_write_pin('A', 3, false);
             ESP_LOGI(TAG, "Fan low override turned off for wading");
         }
         if (fan_high_override) {
             fan_high_override = false;
-            if (exbd_has_io()) mcp23017_write_pin('A', 2, false);
+            if (exbd_has_io()) mcp23017_write_pin('A', 4, false);
             ESP_LOGI(TAG, "Fan high override turned off for wading");
         }
     }
 
-    /* Control OUT1 on expansion board */
+    /* Control GPA2 (wading relay) on expansion board */
     if (exbd_has_io()) {
-        mcp23017_write_pin('A', 0, wading_mode);
-        ESP_LOGI(TAG, "OUT1 %s", wading_mode ? "activated" : "deactivated");
+        mcp23017_write_pin('A', 2, wading_mode);
+        ESP_LOGI(TAG, "GPA2 wading %s", wading_mode ? "activated" : "deactivated");
     }
 
     /* Play notification MP3 (ignore if file doesn't exist) */
@@ -796,10 +796,10 @@ void cooling_toggle_fan_low(void)
         fan_low_override_start = xTaskGetTickCount() * portTICK_PERIOD_MS;
     }
 
-    /* Control GPA1 on MCP23017 expansion board */
+    /* Control GPA3 on MCP23017 expansion board */
     if (exbd_has_io()) {
-        mcp23017_write_pin('A', 1, fan_low_override);
-        ESP_LOGI(TAG, "GPA1 (fan low) %s", fan_low_override ? "activated" : "deactivated");
+        mcp23017_write_pin('A', 3, fan_low_override);
+        ESP_LOGI(TAG, "GPA3 (fan low) %s", fan_low_override ? "activated" : "deactivated");
     }
 
     /* Play notification MP3 */
@@ -828,10 +828,10 @@ void cooling_toggle_fan_high(void)
         fan_high_override_start = xTaskGetTickCount() * portTICK_PERIOD_MS;
     }
 
-    /* Control GPA2 on MCP23017 expansion board */
+    /* Control GPA4 on MCP23017 expansion board */
     if (exbd_has_io()) {
-        mcp23017_write_pin('A', 2, fan_high_override);
-        ESP_LOGI(TAG, "GPA2 (fan high) %s", fan_high_override ? "activated" : "deactivated");
+        mcp23017_write_pin('A', 4, fan_high_override);
+        ESP_LOGI(TAG, "GPA4 (fan high) %s", fan_high_override ? "activated" : "deactivated");
     }
 
     /* Play notification MP3 */
@@ -872,14 +872,14 @@ bool cooling_alarm_active(void)
     /* Auto-timeout manual fan overrides even when gauge is not visible */
     if (fan_low_override && (now_ms - fan_low_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
         fan_low_override = false;
-        mcp23017_write_pin('A', 1, false);
+        mcp23017_write_pin('A', 3, false);
         Play_Music("/sdcard", "flooff.mp3");
         ESP_LOGW(TAG, "Fan LOW override auto-off (background) after %lu min",
                  FAN_OVERRIDE_TIMEOUT_MS / 60000);
     }
     if (fan_high_override && (now_ms - fan_high_override_start) >= FAN_OVERRIDE_TIMEOUT_MS) {
         fan_high_override = false;
-        mcp23017_write_pin('A', 2, false);
+        mcp23017_write_pin('A', 4, false);
         Play_Music("/sdcard", "fhioff.mp3");
         ESP_LOGW(TAG, "Fan HIGH override auto-off (background) after %lu min",
                  FAN_OVERRIDE_TIMEOUT_MS / 60000);

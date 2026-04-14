@@ -5,17 +5,20 @@
  * High-level module that ties together the MCP23017 I/O expander,
  * ADS1115 ADC, and QMC5883L magnetometer on the expansion board.
  *
- * Digital inputs (active high, active high at connector = 1 in software):
- *   IO0 - Select button
- *   IO1 - Ignition on
- *   IO2 - Lights on
- *   IO3 - Fan low speed
- *   IO4 - Fan high speed
- *   IO5 - Coolant low
- *   IO6 - Spare
- *   IO7 - Spare
+ * Digital inputs (Port B, active high in software after polarity config):
+ *   IO0 - Select button    (active-high opto, IPOL inverted)
+ *   IO1 - Ignition on      (active-high opto, IPOL inverted)
+ *   IO2 - Lights on        (active-high opto, IPOL inverted)
+ *   IO3 - Fan low speed    (active-low thermo switch, IPOL inverted + SW flip)
+ *   IO4 - Fan high speed   (active-low thermo switch, IPOL inverted + SW flip)
+ *   IO5 - Coolant low      (active-high opto, IPOL inverted)
+ *   IO6 - Low beam (dip)   (active-high opto, IPOL inverted)
+ *   IO7 - Full beam (high) (active-high opto, IPOL inverted)
  *
- *   (IO5 opto-coupler fixed — coolant restored to original IO5 position)
+ * Digital outputs (Port A, active high = relay on):
+ *   GPA2 - Wading mode relay
+ *   GPA3 - Fan low speed relay
+ *   GPA4 - Fan high speed relay
  *
  * Provides:
  *   - Debounced digital input polling with state-change callbacks
@@ -46,8 +49,8 @@ typedef enum {
     EXBD_INPUT_FAN_LOW    = 3,  // IO3 - Fan low speed
     EXBD_INPUT_FAN_HIGH   = 4,  // IO4 - Fan high speed
     EXBD_INPUT_COOLANT_LO = 5,  // IO5 - Coolant low warning
-    EXBD_INPUT_SPARE_6    = 6,  // IO6 - Spare
-    EXBD_INPUT_SPARE_7    = 7,  // IO7 - Spare
+    EXBD_INPUT_LOW_BEAM   = 6,  // IO6 - Low beam (dip) headlights
+    EXBD_INPUT_FULL_BEAM  = 7,  // IO7 - Full beam (high) headlights
     EXBD_INPUT_COUNT      = 8,
 } exbd_input_t;
 

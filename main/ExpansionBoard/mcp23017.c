@@ -141,9 +141,11 @@ esp_err_t mcp23017_init(void)
     ret = mcp23017_set_port_direction('B', 0xFF);
     if (ret != ESP_OK) return ret;
 
-    // Port B: Enable polarity inversion on all pins (0xFF)
-    // Opto-coupler phototransistor conducts when input active → pulls pin LOW
-    // IPOL inverts this so software reads: External HIGH → 1
+    // Port B: Polarity inversion on ALL pins (0xFF)
+    // All opto-coupler inputs: active signal → opto ON → pin pulled LOW → IPOL inverts to 1
+    // Fan inputs (GPB3, GPB4) are also inverted here; their thermo-switch logic
+    // (active-low = grounded when fan on) is corrected in expansion_board.c after read.
+    // This ensures the idle state (no signal, internal pullup HIGH) reads as 0 for ALL inputs.
     ret = mcp23017_set_port_polarity('B', 0xFF);
     if (ret != ESP_OK) return ret;
 

@@ -76,8 +76,8 @@ static const char *input_names[EXBD_INPUT_COUNT] = {
     [EXBD_INPUT_FAN_LOW]    = "Fan Low",
     [EXBD_INPUT_FAN_HIGH]   = "Fan High",
     [EXBD_INPUT_COOLANT_LO] = "Coolant Low",
-    [EXBD_INPUT_SPARE_6]    = "Spare 6",
-    [EXBD_INPUT_SPARE_7]    = "Spare 7",
+    [EXBD_INPUT_LOW_BEAM]   = "Low Beam",
+    [EXBD_INPUT_FULL_BEAM]  = "Full Beam",
 };
 
 const char *exbd_input_name(exbd_input_t input)
@@ -100,11 +100,17 @@ static bool i2c_probe_fast(uint8_t addr)
 
 /**
  * @brief Process a new raw reading and update debounced state
- * @param raw_byte Raw 8-bit reading from MCP23017 Port A
+ * @param raw_byte Raw 8-bit reading from MCP23017 Port B (after IPOL inversion)
  * @param now_ms Current tick time in ms
  */
 static void process_inputs(uint8_t raw_byte, uint32_t now_ms)
 {
+    // Fan thermo-switch correction: GPB3 (fan low) and GPB4 (fan high) have
+    // opposite opto logic — thermo switch grounds the signal when fan is ON,
+    // so opto is OFF when active.  IPOLB inverts all bits uniformly, which
+    // gives the wrong sense for these two.  Flip bits 3 & 4 here.
+    raw_byte ^= ((1 << EXBD_INPUT_FAN_LOW) | (1 << EXBD_INPUT_FAN_HIGH));
+
     // If raw reading changed from last time, reset the debounce timer
     if (raw_byte != debounce.raw_state) {
         debounce.raw_state = raw_byte;

@@ -1207,15 +1207,21 @@ void app_main(void)
         }
         
         // Night mode handling:
-        // With expansion board: follow lights input
-        // Without expansion board: always day mode
+        // Activate night mode only when sidelights AND (dip OR full beam) are on.
+        // This prevents night mode triggering from a momentary headlight flash
+        // (full beam without sidelights) or parking lights alone.
         if (expansion_board_detected()) {
-            bool lights_on = exbd_get_input(EXBD_INPUT_LIGHTS);
+            bool sidelights = exbd_get_input(EXBD_INPUT_LIGHTS);
+            bool headlights = exbd_get_input(EXBD_INPUT_LOW_BEAM) || exbd_get_input(EXBD_INPUT_FULL_BEAM);
+            bool lights_on  = sidelights && headlights;
             if (lights_on != test_night_mode) {
                 test_night_mode = lights_on;
                 Set_Backlight(lights_on ? BACKLIGHT_NIGHT : BACKLIGHT_DAY);
-                ESP_LOGI("MAIN", "Lights input → %s mode (backlight %d)", lights_on ? "NIGHT" : "DAY",
-                         lights_on ? BACKLIGHT_NIGHT : BACKLIGHT_DAY);
+                ESP_LOGI("MAIN", "Night mode → %s (side=%d dip=%d full=%d)",
+                         lights_on ? "ON" : "OFF",
+                         sidelights,
+                         exbd_get_input(EXBD_INPUT_LOW_BEAM),
+                         exbd_get_input(EXBD_INPUT_FULL_BEAM));
                 switch (current_gauge) {
                     case GAUGE_CLOCK:         clock_set_night_mode(test_night_mode); break;
                     case GAUGE_HORIZON:       artificial_horizon_set_night_mode(test_night_mode); break;
