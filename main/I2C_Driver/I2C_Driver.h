@@ -11,7 +11,7 @@
 #define I2C_SCL_IO                  10
 #define I2C_SDA_IO                  11
 #define I2C_MASTER_NUM              0
-#define I2C_MASTER_FREQ_HZ          400000
+#define I2C_MASTER_FREQ_HZ          100000
 #define I2C_MASTER_TIMEOUT_MS       1000
 
 void I2C_Init(void);
