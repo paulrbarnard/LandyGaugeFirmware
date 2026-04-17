@@ -596,6 +596,22 @@ void cooling_update(void)
     if (!is_visible || !gauge_container) return;
     if (!exbd_has_io()) return;
 
+    /* Ignition off — assume fans off, coolant OK, skip all input reads */
+    if (!exbd_get_input(EXBD_INPUT_IGNITION)) {
+        bool changed = fan_low_active || fan_high_active || !coolant_ok;
+        fan_low_active  = false;
+        fan_high_active = false;
+        coolant_ok      = true;
+        coolant_confirmed_low = false;
+        coolant_overtemp = false;
+        if (changed) {
+            if (fan_low_obj)  lv_obj_invalidate(fan_low_obj);
+            if (fan_high_obj) lv_obj_invalidate(fan_high_obj);
+            if (coolant_obj)  lv_obj_invalidate(coolant_obj);
+        }
+        return;
+    }
+
     uint32_t now_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
     /* Read expansion board inputs — OR with manual override so animation
@@ -860,6 +876,9 @@ bool cooling_get_fan_high_override(void)
 bool cooling_alarm_active(void)
 {
     if (!exbd_has_io()) return false;
+
+    /* Ignition off — no valid cooling inputs, never alarm */
+    if (!exbd_get_input(EXBD_INPUT_IGNITION)) return false;
 
     /* Run the coolant filter even when the gauge isn't visible,
        so the alarm system can detect confirmed-low from any gauge. */

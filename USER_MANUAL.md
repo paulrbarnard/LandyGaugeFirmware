@@ -4,7 +4,7 @@
 
 The Landy Gauge is a compact round instrument display designed for Land Rover vehicles. It features a 360×360 pixel circular screen with touch input, physical navigation buttons, and an expansion board for vehicle signal inputs and outputs.
 
-The gauge provides eight display screens that cycle in order:
+   The gauge provides eight display screens that cycle in order:
 
 1. **Clock**
 2. **Boost** (turbo boost pressure)

@@ -1360,7 +1360,8 @@ void app_main(void)
         // Read coolant temperature from ADS1115 AIN1 (~2 Hz, always when not on boost)
         // Runs even when not on cooling gauge so overtemp alarm can trigger auto-switch.
         // Skipped while boost gauge is active (different ADC gain).
-        if (expansion_board_detected() && current_gauge != GAUGE_BOOST) {
+        // Skipped when ignition is off — sender is unpowered, readings are invalid.
+        if (expansion_board_detected() && current_gauge != GAUGE_BOOST && ignition_on) {
             static uint32_t last_temp_ms = 0;
             uint32_t temp_now = xTaskGetTickCount() * portTICK_PERIOD_MS;
             if ((temp_now - last_temp_ms) >= 500) {  // ~2 Hz — temp changes slowly
