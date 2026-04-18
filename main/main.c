@@ -129,9 +129,8 @@ static uint32_t tpms_batt_last_alarm_ms = 0;      // Timestamp of last battery a
 #define MAP_DIVIDER_RATIO       0.4125f // R28/(R26+R28) = 33K/80K
 #define MAP_VOLTAGE_MIN         (0.0f * MAP_DIVIDER_RATIO)   // 0V sensor = 0 kPa
 #define MAP_VOLTAGE_MAX         (5.0f * MAP_DIVIDER_RATIO)   // 5V sensor = 300 kPa (2.0625V at ADC)
-#define MAP_KPA_MIN             0.0f    // 0 kPa absolute
-#define MAP_KPA_MAX             300.0f  // 300 kPa absolute (3 bar abs = 2 bar boost)
-#define MAP_ATMOSPHERIC_KPA     101.325f // Standard atmosphere
+#define MAP_KPA_PER_VOLT        (300.0f / (5.0f * MAP_DIVIDER_RATIO)) // kPa per volt at ADC
+#define MAP_ZERO_BOOST_V        0.7735f // Measured ADC voltage at atmospheric (zero boost)
 #define KPA_TO_PSI              0.145038f
 static bool map_adc_configured = false;  // Track if PGA/DR set for MAP reading
 
@@ -1269,20 +1268,14 @@ void app_main(void)
             float voltage = 0.0f;
             esp_err_t adc_ret = ads1115_read_single(MAP_ADC_CHANNEL, &voltage);
             if (adc_ret == ESP_OK) {
-                // Convert voltage to kPa absolute
-                float kpa_abs = MAP_KPA_MIN + 
-                    (voltage - MAP_VOLTAGE_MIN) / (MAP_VOLTAGE_MAX - MAP_VOLTAGE_MIN) 
-                    * (MAP_KPA_MAX - MAP_KPA_MIN);
-                // Clamp to valid range
-                if (kpa_abs < MAP_KPA_MIN) kpa_abs = MAP_KPA_MIN;
-                if (kpa_abs > MAP_KPA_MAX) kpa_abs = MAP_KPA_MAX;
-                // Convert to gauge pressure (boost bar)
-                float boost_bar = (kpa_abs - MAP_ATMOSPHERIC_KPA) / 100.0f;
+                // Convert voltage to boost relative to measured atmospheric zero
+                float boost_kpa = (voltage - MAP_ZERO_BOOST_V) * MAP_KPA_PER_VOLT;
+                float boost_bar = boost_kpa / 100.0f;
                 if (boost_bar < 0.0f) boost_bar = 0.0f;  // No vacuum on diesel gauge
 
                 static int map_log_counter = 0;
                 if ((map_log_counter++ % 50) == 0) {  // Log every ~0.5s
-                    ESP_LOGD("MAP", "V=%.3f kPa=%.1f BAR=%.2f", voltage, kpa_abs, boost_bar);
+                    ESP_LOGD("MAP", "V=%.4f boost_kPa=%.1f BAR=%.3f", voltage, boost_kpa, boost_bar);
                 }
                 boost_set_value(boost_bar);
             } else {
