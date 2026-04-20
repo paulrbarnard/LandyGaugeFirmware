@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 
 static const char *TAG = "SETTINGS";
 
@@ -413,44 +414,45 @@ bool settings_get_tpms_mac(tpms_position_t pos, uint8_t *mac_out)
 typedef struct {
     const char *name;     /* Friendly display name */
     const char *posix_tz; /* POSIX TZ string for setenv("TZ", ...) */
+    float       latitude; /* Representative latitude for sunrise/sunset calc */
 } tz_entry_t;
 
 static const tz_entry_t tz_table[] = {
     /* UTC-12 to UTC+14, common zones with DST where applicable */
-    {"Baker Island (-12)",        "BAKT12"},
-    {"Hawaii (-10)",              "HST10"},
-    {"Alaska (-9/DST)",           "AKST9AKDT,M3.2.0,M11.1.0"},
-    {"US Pacific (-8/DST)",       "PST8PDT,M3.2.0,M11.1.0"},
-    {"US Mountain (-7/DST)",      "MST7MDT,M3.2.0,M11.1.0"},
-    {"US Central (-6/DST)",       "CST6CDT,M3.2.0,M11.1.0"},
-    {"US Eastern (-5/DST)",       "EST5EDT,M3.2.0,M11.1.0"},
-    {"Atlantic (-4/DST)",         "AST4ADT,M3.2.0,M11.1.0"},
-    {"Argentina (-3)",            "ART3"},
-    {"Brazil (-3/DST)",           "BRT3BRST,M10.3.0/0,M2.3.0/0"},
-    {"Mid-Atlantic (-2)",         "MAT2"},
-    {"Azores (-1/DST)",           "AZOT1AZOST,M3.5.0/0,M10.5.0/1"},
-    {"London (GMT/BST)",          "GMT0BST,M3.5.0/1,M10.5.0"},
-    {"Paris (CET/CEST)",          "CET-1CEST,M3.5.0/2,M10.5.0/3"},
-    {"Athens (EET/EEST)",         "EET-2EEST,M3.5.0/3,M10.5.0/4"},
-    {"Moscow (+3)",               "MSK-3"},
-    {"Tehran (+3:30/DST)",        "<+0330>-3:30<+0430>,J79/24,J263/24"},
-    {"Dubai (+4)",                "GST-4"},
-    {"Kabul (+4:30)",             "<+0430>-4:30"},
-    {"Pakistan (+5)",             "PKT-5"},
-    {"India (+5:30)",             "IST-5:30"},
-    {"Nepal (+5:45)",             "<+0545>-5:45"},
-    {"Bangladesh (+6)",           "BDT-6"},
-    {"Thailand (+7)",             "ICT-7"},
-    {"China/HK (+8)",             "CST-8"},
-    {"Japan/Korea (+9)",          "JST-9"},
-    {"Australia AEST (+10/DST)",  "AEST-10AEDT,M10.1.0,M4.1.0/3"},
-    {"Australia ACST (+9:30/DST)","ACST-9:30ACDT,M10.1.0,M4.1.0/3"},
-    {"Australia AWST (+8)",       "AWST-8"},
-    {"New Zealand (+12/DST)",     "NZST-12NZDT,M9.5.0,M4.1.0/3"},
-    {"Tonga (+13)",               "TOT-13"},
-    {"South Africa (SAST)",       "SAST-2"},
-    {"E. Africa (+3)",            "EAT-3"},
-    {"W. Africa (+1)",            "WAT-1"},
+    {"Baker Island (-12)",        "BAKT12",                                      0.2f},
+    {"Hawaii (-10)",              "HST10",                                       21.3f},
+    {"Alaska (-9/DST)",           "AKST9AKDT,M3.2.0,M11.1.0",                   61.2f},
+    {"US Pacific (-8/DST)",       "PST8PDT,M3.2.0,M11.1.0",                     34.0f},
+    {"US Mountain (-7/DST)",      "MST7MDT,M3.2.0,M11.1.0",                     39.7f},
+    {"US Central (-6/DST)",       "CST6CDT,M3.2.0,M11.1.0",                     41.9f},
+    {"US Eastern (-5/DST)",       "EST5EDT,M3.2.0,M11.1.0",                     40.7f},
+    {"Atlantic (-4/DST)",         "AST4ADT,M3.2.0,M11.1.0",                     44.6f},
+    {"Argentina (-3)",            "ART3",                                        -34.6f},
+    {"Brazil (-3/DST)",           "BRT3BRST,M10.3.0/0,M2.3.0/0",                -23.5f},
+    {"Mid-Atlantic (-2)",         "MAT2",                                        32.3f},
+    {"Azores (-1/DST)",           "AZOT1AZOST,M3.5.0/0,M10.5.0/1",              38.7f},
+    {"London (GMT/BST)",          "GMT0BST,M3.5.0/1,M10.5.0",                   51.5f},
+    {"Paris (CET/CEST)",          "CET-1CEST,M3.5.0/2,M10.5.0/3",               48.9f},
+    {"Athens (EET/EEST)",         "EET-2EEST,M3.5.0/3,M10.5.0/4",               38.0f},
+    {"Moscow (+3)",               "MSK-3",                                       55.8f},
+    {"Tehran (+3:30/DST)",        "<+0330>-3:30<+0430>,J79/24,J263/24",          35.7f},
+    {"Dubai (+4)",                "GST-4",                                       25.2f},
+    {"Kabul (+4:30)",             "<+0430>-4:30",                                34.5f},
+    {"Pakistan (+5)",             "PKT-5",                                       24.9f},
+    {"India (+5:30)",             "IST-5:30",                                    28.6f},
+    {"Nepal (+5:45)",             "<+0545>-5:45",                                27.7f},
+    {"Bangladesh (+6)",           "BDT-6",                                       23.8f},
+    {"Thailand (+7)",             "ICT-7",                                       13.8f},
+    {"China/HK (+8)",             "CST-8",                                       22.3f},
+    {"Japan/Korea (+9)",          "JST-9",                                       35.7f},
+    {"Australia AEST (+10/DST)",  "AEST-10AEDT,M10.1.0,M4.1.0/3",               -33.9f},
+    {"Australia ACST (+9:30/DST)","ACST-9:30ACDT,M10.1.0,M4.1.0/3",             -34.9f},
+    {"Australia AWST (+8)",       "AWST-8",                                      -31.9f},
+    {"New Zealand (+12/DST)",     "NZST-12NZDT,M9.5.0,M4.1.0/3",                -36.8f},
+    {"Tonga (+13)",               "TOT-13",                                      -21.2f},
+    {"South Africa (SAST)",       "SAST-2",                                      -33.9f},
+    {"E. Africa (+3)",            "EAT-3",                                       -1.3f},
+    {"W. Africa (+1)",            "WAT-1",                                       6.5f},
 };
 
 #define TZ_TABLE_COUNT  (sizeof(tz_table) / sizeof(tz_table[0]))
@@ -552,4 +554,52 @@ bool settings_timezone_configured(void)
     bool found = (nvs_get_u8(h, KEY_TZ_INDEX, &val) == ESP_OK);
     nvs_close(h);
     return found;
+}
+
+/*******************************************************************************
+ * Solar twilight calculation — dawn/dusk based on timezone latitude
+ ******************************************************************************/
+
+float settings_get_latitude(void)
+{
+    uint8_t idx = tz_index;
+    if (idx >= TZ_TABLE_COUNT) idx = 12;
+    return tz_table[idx].latitude;
+}
+
+bool settings_is_dark(uint8_t month, uint8_t day, uint8_t hour, uint8_t minute)
+{
+    float lat = settings_get_latitude();
+
+    /* Day of year (approximate, ignoring leap years — good enough) */
+    static const uint16_t month_days[] = {0,31,59,90,120,151,181,212,243,273,304,334};
+    if (month < 1 || month > 12) return false;
+    int doy = month_days[month - 1] + day;
+
+    /* Solar declination using Fourier approximation (Spencer, 1971) */
+    float gamma = 2.0f * (float)M_PI * (doy - 1) / 365.0f;
+    float decl  = 0.006918f - 0.399912f * cosf(gamma)
+                + 0.070257f * sinf(gamma)
+                - 0.006758f * cosf(2.0f * gamma)
+                + 0.000907f * sinf(2.0f * gamma)
+                - 0.002697f * cosf(3.0f * gamma)
+                + 0.001480f * sinf(3.0f * gamma);
+
+    float lat_rad = lat * (float)M_PI / 180.0f;
+
+    /* Civil twilight: sun 6° below horizon (zenith = 96°) */
+    float cos_zenith = cosf(96.0f * (float)M_PI / 180.0f);
+    float cos_ha = (cos_zenith - sinf(lat_rad) * sinf(decl))
+                 / (cosf(lat_rad) * cosf(decl));
+
+    /* Polar extremes: midnight sun or polar night */
+    if (cos_ha < -1.0f) return false;   /* never gets dark */
+    if (cos_ha >  1.0f) return true;    /* never gets light */
+
+    float ha_hours = acosf(cos_ha) * 12.0f / (float)M_PI;
+    float dawn = 12.0f - ha_hours;
+    float dusk = 12.0f + ha_hours;
+
+    float now = (float)hour + (float)minute / 60.0f;
+    return (now < dawn || now >= dusk);
 }

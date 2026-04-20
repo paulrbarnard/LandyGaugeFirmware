@@ -56,8 +56,7 @@ typedef struct {
 } debounce_state_t;
 static debounce_state_t debounce = { 0 };
 
-// Select button edge detection
-static volatile bool select_press_pending = false;
+
 
 // User callback
 static exbd_input_callback_t user_callback = NULL;
@@ -70,7 +69,7 @@ static TaskHandle_t poll_task_handle = NULL;
  ******************************************************************************/
 
 static const char *input_names[EXBD_INPUT_COUNT] = {
-    [EXBD_INPUT_SELECT]     = "Select",
+    [EXBD_INPUT_SELECT]     = "Reserved",
     [EXBD_INPUT_IGNITION]   = "Ignition",
     [EXBD_INPUT_LIGHTS]     = "Lights",
     [EXBD_INPUT_FAN_LOW]    = "Fan Low",
@@ -151,11 +150,6 @@ static void process_inputs(uint8_t raw_byte, uint32_t now_ms)
                          input_names[i], i,
                          old_state ? "ON" : "OFF",
                          new_state ? "ON" : "OFF");
-
-                // Edge detection for select button
-                if (i == EXBD_INPUT_SELECT && new_state && !old_state) {
-                    select_press_pending = true;
-                }
 
                 // Fire callback
                 if (user_callback) {
@@ -457,11 +451,7 @@ void exbd_get_inputs(exbd_inputs_snapshot_t *snapshot)
 
 bool exbd_select_pressed(void)
 {
-    if (select_press_pending) {
-        select_press_pending = false;
-        return true;
-    }
-    return false;
+    return false;  // Select button removed — IO0 reserved for future use
 }
 
 void exbd_register_input_callback(exbd_input_callback_t callback)

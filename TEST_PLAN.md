@@ -6,12 +6,14 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 
 | Signal | MCP23017 Pin | Test Jig Control | Active Level |
 |--------|-------------|------------------|--------------|
-| Select button | GPB0 (IO0) | Momentary push | HIGH |
+| Select button | GPB0 (IO0) | Reserved (future expansion) | — |
 | Ignition | GPB1 (IO1) | Toggle switch | HIGH |
-| Lights (headlights) | GPB2 (IO2) | Toggle switch | HIGH |
+| Lights (sidelights) | GPB2 (IO2) | Toggle switch | HIGH |
 | Fan Low | GPB3 (IO3) | Toggle switch | HIGH |
 | Fan High | GPB4 (IO4) | Toggle switch | HIGH |
 | Coolant Low (float) | GPB5 (IO5) | Toggle switch | HIGH |
+| Low Beam (dip) | GPB6 (IO6) | Toggle switch | HIGH |
+| Full Beam (high) | GPB7 (IO7) | Toggle switch | HIGH |
 
 **Analogue inputs** (ADS1115):
 - AIN0 — MAP sensor: use a potentiometer (0–2.06V) or voltage source to simulate boost pressure
@@ -44,6 +46,8 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 | 1.2 | Cold boot without expansion board | Disconnect expansion board, power on | Clock gauge displays, log shows "Expansion board not detected", expansion-dependent gauges skipped | [ ] |
 | 1.3 | SD card present | Boot with SD card inserted | Log shows "SD card mounted", MP3 playback available | [ ] |
 | 1.4 | SD card absent | Boot without SD card | System boots normally, audio alerts silently fail without crash | [ ] |
+| 1.8 | SD card custom images loaded | Boot with .bin image files on SD card | Log shows "Custom images: N of 8 loaded from SD card" | [ ] |
+| 1.9 | SD card no custom images | Boot with SD card but no .bin files | Log shows "Custom images: 0 of 8 loaded from SD card", built-in images used | [ ] |
 | 1.5 | Touch screen detection | Boot with touch connected | Log shows "Touch screen detected and enabled" | [ ] |
 | 1.6 | Button-only mode | Boot without touch (if possible) | Log shows "No touch screen detected — button-only mode", buttons still navigate | [ ] |
 | 1.7 | NVS settings restore | Change a setting (e.g. boost units), reboot | Setting persists after reboot | [ ] |
@@ -83,18 +87,7 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 
 ## 4. NAVIGATION — EXPANSION BOARD SELECT BUTTON
 
-| # | Test | Steps | Expected Result | Status |
-|---|------|-------|-----------------|--------|
-| 4.1 | Select double-tap → Clock | On any gauge, double-tap select (IO0) within 500ms | Jumps to Clock | [ ] |
-| 4.2 | Select long-press (Boost) | On Boost, hold select >1s | Units toggle, confirmation beep sounds | [ ] |
-| 4.3 | Select long-press (EGT) | On EGT, hold select >1s | Units toggle °C ↔ °F | [ ] |
-| 4.4 | Select long-press (TPMS) | On TPMS, hold select >1s | Display mode cycles (BAR/°C → PSI/°C → BAR/°F → PSI/°F) | [ ] |
-| 4.5 | Select long-press (Tilt) | On Tilt, hold select >1s | Current roll angle set as 0° reference, confirmation beep | [ ] |
-| 4.6 | Select long-press (Incline) | On Incline, hold select >1s | Display mode cycles (degrees → 1:X → % slope), scales update | [ ] |
-| 4.7 | Select long-press (Compass) | On Compass, hold select >1s | Enters calibration mode, "CALIBRATING" overlay appears | [ ] |
-| 4.7 | Select long-press (Clock) | On Clock, hold select >1s | Initiates NTP sync attempt via WiFi | [ ] |
-| 4.8 | Select long-press (Cooling) | On Cooling, hold select >1s | Toggles wading mode (see Section 9) | [ ] |
-| 4.10 | Select single-tap ignored | Tap select once, wait ≥500ms | No gauge-specific action occurs | [ ] |
+> **Section removed** — The dedicated expansion board select button (IO0) has been removed. IO0 is now reserved for future expansion. Select functionality is available via the Next+Previous button combo and touch screen double-tap/long-press.
 
 ---
 
@@ -114,11 +107,10 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 | # | Test | Steps | Expected Result | Status |
 |---|------|-------|-----------------|--------|
 | 6.1 | Touch wake | Ignition OFF (standby), touch screen | Display wakes for 5 minutes, shows gauges | [ ] |
-| 6.2 | Select button wake | Ignition OFF, press select button (IO0) | Display wakes for 5 minutes | [ ] |
-| 6.3 | Combo button wake | Ignition OFF, hold Next + Previous | Display wakes for 5 minutes | [ ] |
-| 6.4 | Temp wake timeout | Wake via touch, wait 5 minutes with no interaction | Display returns to standby | [ ] |
-| 6.5 | Temp wake activity reset | Wake via touch, interact at 4 minutes | 5-minute timer resets, stays awake another 5 minutes | [ ] |
-| 6.6 | Ignition ON during temp wake | Wake via touch, then set ignition HIGH | Gauge stays active permanently (no 5-min timeout) | [ ] |
+| 6.2 | Combo button wake | Ignition OFF, hold Next + Previous | Display wakes for 5 minutes | [ ] |
+| 6.3 | Temp wake timeout | Wake via touch, wait 5 minutes with no interaction | Display returns to standby | [ ] |
+| 6.4 | Temp wake activity reset | Wake via touch, interact at 4 minutes | 5-minute timer resets, stays awake another 5 minutes | [ ] |
+| 6.5 | Ignition ON during temp wake | Wake via touch, then set ignition HIGH | Gauge stays active permanently (no 5-min timeout) | [ ] |
 
 ---
 
@@ -126,11 +118,20 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 
 | # | Test | Steps | Expected Result | Status |
 |---|------|-------|-----------------|--------|
-| 7.1 | Day mode default | Boot with lights OFF (IO2 LOW) | White/bright accents, backlight at ~70% | [ ] |
-| 7.2 | Night mode activation | Set lights ON (IO2 HIGH) | Green accents, backlight dims to ~15% | [ ] |
-| 7.3 | Night mode on all gauges | Cycle through all 8 gauges with lights ON | Each gauge renders in night mode colours | [ ] |
-| 7.4 | Day/night transition | Toggle lights ON/OFF while viewing any gauge | Colours and brightness switch seamlessly | [ ] |
-| 7.5 | Night mode persistence | Set lights ON, switch gauges | Night mode preserved when switching between gauges | [ ] |
+| 7.1 | Day mode default | Boot with all lights OFF | White/bright accents, backlight at ~70% | [ ] |
+| 7.2 | Night mode activation | Set sidelights (IO2) + dip (IO6) HIGH | Green accents, backlight dims to ~15% | [ ] |
+| 7.3 | Night mode on all gauges | Cycle through all 8 gauges with night mode active | Each gauge renders in night mode colours | [ ] |
+| 7.4 | Day/night transition | Toggle sidelights + dip ON/OFF while viewing any gauge | Colours and brightness switch seamlessly | [ ] |
+| 7.5 | Night mode persistence | Activate night mode, switch gauges | Night mode preserved when switching between gauges | [ ] |
+| 7.6 | Sidelights only — no night mode | Set sidelights (IO2) HIGH, dip and full beam OFF | Stays in day mode (sidelights alone not sufficient) | [ ] |
+| 7.7 | Full beam flash — no night mode | Flash full beam (IO7) HIGH briefly, sidelights OFF | Stays in day mode (headlights without sidelights ignored) | [ ] |
+| 7.8 | Full beam + sidelights — night mode | Set sidelights (IO2) + full beam (IO7) HIGH | Night mode activates (full beam counts as headlights) | [ ] |
+| 7.9 | Solar night — no expansion board | Disconnect expansion board, set RTC to 22:00, London timezone | Night mode activates automatically (civil twilight calc) | [ ] |
+| 7.10 | Solar day — no expansion board | Disconnect expansion board, set RTC to 12:00, London timezone | Day mode active | [ ] |
+| 7.11 | Solar dusk transition | Disconnect expansion board, set RTC a few minutes before expected dusk | Mode transitions from day to night at civil dusk | [ ] |
+| 7.12 | Solar dawn transition | Disconnect expansion board, set RTC a few minutes before expected dawn | Mode transitions from night to day at civil dawn | [ ] |
+| 7.13 | Solar — summer vs winter | Set date to June 21, then December 21, check dusk time | Summer dusk is later than winter dusk | [ ] |
+| 7.14 | Solar — equatorial timezone | Select Thailand (+7, lat 13.8°), set RTC to 19:00 | Night mode activates (near-equator: dusk ~18:30 year-round) | [ ] |
 
 ---
 
@@ -181,7 +182,7 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 | # | Test | Steps | Expected Result | Status |
 |---|------|-------|-----------------|--------|
 | 9.14 | Wading ON — touch | On Cooling gauge, long-press bottom half of screen | GPA0 output goes HIGH, fan icons turn red, "WADING" label shows, wadeOn.mp3 plays | [ ] |
-| 9.15 | Wading ON — select button | On Cooling gauge, hold select >1s | Same as 9.14 — wading activates | [ ] |
+| 9.15 | Wading ON — button combo | On Cooling gauge, hold Next+Prev >1s | Same as 9.14 — wading activates | [ ] |
 | 9.16 | Wading — navigation blocked | With wading ON, try to tap left/right to change gauge | Gauge does NOT change — locked on Cooling | [ ] |
 | 9.17 | Wading OFF | Long-press bottom half again (or hold select) | GPA0 goes LOW, fan icons return to normal colours, wadeOff.mp3 plays | [ ] |
 | 9.18 | Wading kills fan overrides | Activate fan low override, then activate wading | Fan low override turns OFF when wading activates | [ ] |
@@ -440,6 +441,23 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 
 ---
 
+## 23. CUSTOM VEHICLE IMAGES (SD CARD)
+
+| # | Test | Steps | Expected Result | Status |
+|---|------|-------|-----------------|--------|
+| 23.1 | All 8 custom images | Place all 8 .bin files on SD card, boot | Log shows 8 of 8 loaded; Tilt, Incline, TPMS, Clock show custom images | [ ] |
+| 23.2 | Partial custom images | Place only rear.bin on SD card, boot | Tilt day uses custom image, all others use built-in defaults | [ ] |
+| 23.3 | Day/night pair | Place rear.bin + reardark.bin, toggle lights | Day mode shows custom rear, night mode shows custom rear dark | [ ] |
+| 23.4 | Fallback on missing file | Remove side.bin from SD card, boot | Incline day uses built-in default, no error | [ ] |
+| 23.5 | Corrupt .bin file | Place a truncated or invalid .bin file on SD card | Log shows warning, built-in default used, no crash | [ ] |
+| 23.6 | Wrong header format | Place .bin with incorrect color format in header | Log shows "invalid header", built-in default used | [ ] |
+| 23.7 | No SD card fallback | Boot without SD card | Log shows "No SD card — using built-in images", all gauges display normally | [ ] |
+| 23.8 | PSRAM allocation | Load all 6 custom images | No PSRAM allocation failure, all images display correctly | [ ] |
+| 23.9 | Image display quality | View each gauge with custom images | Images display correctly, no colour artifacts, transparency works | [ ] |
+| 23.10 | SD card removal after boot | Boot with custom images, remove SD card while running | Custom images continue to display (loaded into PSRAM) | [ ] |
+
+---
+
 ## Test Execution Log
 
 | Date | Tester | Firmware Version | Tests Run | Pass | Fail | Notes |
@@ -457,3 +475,4 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 - **5-minute fan override timeout** — similarly, consider temporarily shortening for testing
 - **1-hour TPMS battery cooldown** — temporarily shorten for practical testing
 - All MP3 filenames must be **8.3 format** (≤8 characters before .mp3) due to `CONFIG_FATFS_LFN_NONE=y`
+- **Custom image .bin files** can be generated with `python3 convert_image.py --bin` — copy the `sdcard/*.bin` files to the root of the SD card

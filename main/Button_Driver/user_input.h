@@ -2,8 +2,8 @@
  * @file user_input.h
  * @brief Unified input abstraction for all user interaction methods
  *
- * Combines physical buttons (next/prev/combo-select), expansion board
- * select button, and touch screen into a single event stream.
+ * Combines physical buttons (next/prev/combo-select) and touch screen
+ * into a single event stream.
  *
  * Events produced:
  *   INPUT_NEXT           Next / scroll down  (auto-repeats on button hold)
@@ -14,8 +14,7 @@
  *
  * Input sources:
  *   1. GPIO buttons: GPIO0/43 = next, GPIO44 = prev, combo = select
- *   2. Expansion board: dedicated select button (MCP23017 GPB0)
- *   3. Touch screen: fed via user_input_feed_*() from LVGL handler
+ *   2. Touch screen: fed via user_input_feed_*() from LVGL handler
  *
  * Button auto-repeat : 400 ms initial delay, then every 150 ms.
  * Combo tolerance    : 150 ms window for pressing both buttons.

@@ -255,38 +255,7 @@ static void poll_buttons(uint32_t now)
     }
 }
 
-/* ══════════════════════════════════════════════════════════════════
- *  Expansion-board select button
- * ══════════════════════════════════════════════════════════════════ */
-static bool     exbd_held       = false;
-static uint32_t exbd_since      = 0;
-static bool     exbd_long_fired = false;
 
-static void poll_expansion(uint32_t now)
-{
-    if (!expansion_board_detected()) return;
-
-    /* Edge detection (rising) */
-    if (exbd_select_pressed() && !exbd_long_fired) {
-        handle_select_tap();
-    }
-
-    /* Level tracking for long-press */
-    bool held_now = exbd_get_input(EXBD_INPUT_SELECT);
-    if (held_now && !exbd_held) {
-        exbd_held       = true;
-        exbd_since      = now;
-        exbd_long_fired = false;
-    } else if (held_now && exbd_held && !exbd_long_fired) {
-        if ((now - exbd_since) >= LONG_PRESS_MS) {
-            exbd_long_fired = true;
-            sel_state = SEL_IDLE;        /* cancel pending double-tap */
-            handle_select_long();
-        }
-    } else if (!held_now && exbd_held) {
-        exbd_held = false;
-    }
-}
 
 /* ══════════════════════════════════════════════════════════════════
  *  Public API
@@ -297,8 +266,6 @@ void user_input_init(void)
     q_head = q_tail = q_count = 0;
     sel_state       = SEL_IDLE;
     btn_state       = BTN_IDLE;
-    exbd_held       = false;
-    exbd_long_fired = false;
     current_mode    = INPUT_MODE_NORMAL;
     ESP_LOGI(TAG, "Unified input initialised (repeat=%d/%dms, combo=%dms, "
              "double-tap=%dms, long=%dms)",
@@ -328,7 +295,6 @@ input_event_t user_input_poll(void)
     /* Queue was empty — do the actual work */
     uint32_t now = now_ms();
     poll_buttons(now);
-    poll_expansion(now);
     check_select_timeout(now);
 
     if (q_count > 0) return dequeue();

@@ -56,8 +56,7 @@ static warning_level_t tilt_warning_level = WARNING_NONE;
 static warning_level_t current_tilt_audio_level = WARNING_NONE;
 
 // Declare the external images
-LV_IMG_DECLARE(rear_110_235);        // Day mode image
-LV_IMG_DECLARE(rear_dark_110_235);   // Night mode image
+#include "sd_images.h"
 
 // LVGL objects
 static lv_obj_t *tilt_gauge = NULL;
@@ -291,11 +290,7 @@ void tilt_init(void) {
     tilt_img = lv_img_create(tilt_gauge);
     
     // Set the image source based on night/day mode
-    if (night_mode) {
-        lv_img_set_src(tilt_img, &rear_dark_110_235);
-    } else {
-        lv_img_set_src(tilt_img, &rear_110_235);
-    }
+    lv_img_set_src(tilt_img, sd_images_get_rear(night_mode));
     
     // Center the image in the container (image does NOT rotate)
     lv_obj_align(tilt_img, LV_ALIGN_CENTER, 0, 0);
@@ -495,11 +490,7 @@ void tilt_set_night_mode(bool night) {
         
         if (tilt_img) {
             // Update the image source based on the new mode
-            if (night_mode) {
-                lv_img_set_src(tilt_img, &rear_dark_110_235);
-            } else {
-                lv_img_set_src(tilt_img, &rear_110_235);
-            }
+            lv_img_set_src(tilt_img, sd_images_get_rear(night_mode));
         }
         
         // Invalidate horizon line and scales to redraw with new colors

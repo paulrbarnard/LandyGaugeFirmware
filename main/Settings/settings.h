@@ -134,6 +134,23 @@ const char *settings_get_timezone_name(int idx);
 /** @return true if timezone has been explicitly configured */
 bool settings_timezone_configured(void);
 
+/*******************************************************************************
+ * Solar twilight — automatic day/night when expansion board is absent
+ ******************************************************************************/
+
+/** @return representative latitude for the selected timezone */
+float settings_get_latitude(void);
+
+/**
+ * @brief Check if it is dark (after civil dusk / before civil dawn)
+ *
+ * Uses the selected timezone's latitude and civil twilight (sun 6° below
+ * horizon) to determine whether it is dark at the given local time.
+ *
+ * @return true if the current time is outside civil twilight daylight hours
+ */
+bool settings_is_dark(uint8_t month, uint8_t day, uint8_t hour, uint8_t minute);
+
 #ifdef __cplusplus
 }
 #endif

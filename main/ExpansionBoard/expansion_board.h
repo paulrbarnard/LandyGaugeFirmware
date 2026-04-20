@@ -6,7 +6,7 @@
  * ADS1115 ADC, and QMC5883L magnetometer on the expansion board.
  *
  * Digital inputs (Port B, active high in software after polarity config):
- *   IO0 - Select button    (active-high opto, IPOL inverted)
+ *   IO0 - Reserved          (future expansion)
  *   IO1 - Ignition on      (active-high opto, IPOL inverted)
  *   IO2 - Lights on        (active-high opto, IPOL inverted)
  *   IO3 - Fan low speed    (active-low thermo switch, IPOL inverted + SW flip)
@@ -43,7 +43,7 @@ extern "C" {
 
 /** Digital input identifiers (active high) */
 typedef enum {
-    EXBD_INPUT_SELECT     = 0,  // IO0 - Select button
+    EXBD_INPUT_SELECT     = 0,  // IO0 - Reserved for future use
     EXBD_INPUT_IGNITION   = 1,  // IO1 - Ignition on
     EXBD_INPUT_LIGHTS     = 2,  // IO2 - Lights on
     EXBD_INPUT_FAN_LOW    = 3,  // IO3 - Fan low speed

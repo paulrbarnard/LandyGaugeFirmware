@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
-"""Convert a PNG image to LVGL C array format (LV_IMG_CF_TRUE_COLOR_ALPHA)."""
+"""Convert PNG images to LVGL C array format and/or SD card .bin format.
+
+Usage:
+  python3 convert_image.py              # Convert all PNGs to C arrays
+  python3 convert_image.py --bin        # Also generate SD card .bin files
+  python3 convert_image.py --bin-only   # Only generate SD card .bin files
+"""
 
 import sys
+import struct
 from PIL import Image
 
 def convert_to_lvgl_c(input_path, output_path, var_name, attr_name):
@@ -121,6 +128,41 @@ def write_pixel_data_32(f, pixels):
         f.write(line + '\n')
 
 
+def convert_to_lvgl_bin(input_path, output_path):
+    """Convert PNG to LVGL binary .bin format for SD card loading.
+
+    File format:
+      Offset 0: lv_img_header_t (4 bytes, packed bitfield)
+      Offset 4: raw pixel data (RGB565 byte-swapped + alpha, 3 bytes/pixel)
+
+    lv_img_header_t (uint32_t, little-endian):
+      bits [0:4]   = cf (5 = LV_IMG_CF_TRUE_COLOR_ALPHA)
+      bit  [5]     = always_zero
+      bits [6:7]   = reserved
+      bits [8:18]  = w (11 bits)
+      bits [19:29] = h (11 bits)
+      bits [30:31] = reserved
+    """
+    img = Image.open(input_path).convert("RGBA")
+    w, h = img.size
+    pixels = list(img.getdata())
+
+    LV_IMG_CF_TRUE_COLOR_ALPHA = 5
+    header = LV_IMG_CF_TRUE_COLOR_ALPHA | (w << 8) | (h << 19)
+
+    with open(output_path, 'wb') as f:
+        f.write(struct.pack('<I', header))
+        for r, g, b, a in pixels:
+            # RGB565 byte-swapped (LV_COLOR_16_SWAP=1)
+            c16 = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+            hi = (c16 >> 8) & 0xFF
+            lo = c16 & 0xFF
+            f.write(bytes([hi, lo, a]))
+
+    data_size = w * h * 3
+    print(f"Converted {input_path} -> {output_path} ({w}x{h}, {data_size + 4} bytes)")
+
+
 if __name__ == '__main__':
     base = '/Users/pbarnard/Documents/ESP/LandyGaugeSmall'
 
@@ -131,17 +173,49 @@ if __name__ == '__main__':
         ('images/110RoofDark150w.png','main/110RoofDark150w.c','roof_dark_110_150w', 'ROOF_DARK_110_150W'),
         ('images/110Side292w.png',    'main/110Side292w.c',    'side_110_292w',      'SIDE_110_292W'),
         ('images/110SideDark292w.png','main/110SideDark292w.c','side_dark_110_292w', 'SIDE_DARK_110_292W'),
+        ('images/logo.png',          'main/logo.c',          'logo_img',           'LOGO_IMG'),
+        ('images/logoDark.png',      'main/logoDark.c',      'logo_dark_img',      'LOGO_DARK_IMG'),
     ]
 
-    # Convert only images that exist
-    targets = sys.argv[1:] if len(sys.argv) > 1 else [c[0] for c in conversions]
+    # SD card .bin output mapping (8.3 filenames)
+    bin_conversions = [
+        ('images/110Rear235.png',     'sdcard/rear.bin'),
+        ('images/110RearDark235.png', 'sdcard/reardark.bin'),
+        ('images/110Side292w.png',    'sdcard/side.bin'),
+        ('images/110SideDark292w.png','sdcard/sidedark.bin'),
+        ('images/110Roof150w.png',    'sdcard/roof.bin'),
+        ('images/110RoofDark150w.png','sdcard/roofdark.bin'),
+        ('images/logo.png',          'sdcard/logo.bin'),
+        ('images/logoDark.png',      'sdcard/logodark.bin'),
+    ]
 
-    for img_rel, c_rel, var_name, attr_name in conversions:
-        if img_rel in targets or 'all' in targets:
-            import os
+    args = sys.argv[1:]
+    do_bin = '--bin' in args or '--bin-only' in args
+    do_c   = '--bin-only' not in args
+
+    # Convert to C arrays (default)
+    if do_c:
+        targets = [a for a in args if not a.startswith('--')] or [c[0] for c in conversions]
+        for img_rel, c_rel, var_name, attr_name in conversions:
+            if img_rel in targets or 'all' in targets:
+                import os
+                img_path = os.path.join(base, img_rel)
+                c_path = os.path.join(base, c_rel)
+                if os.path.exists(img_path):
+                    convert_to_lvgl_c(img_path, c_path, var_name, attr_name)
+                else:
+                    print(f"Skipping {img_rel} (not found)")
+
+    # Convert to SD card .bin files
+    if do_bin:
+        import os
+        os.makedirs(os.path.join(base, 'sdcard'), exist_ok=True)
+        for img_rel, bin_rel in bin_conversions:
             img_path = os.path.join(base, img_rel)
-            c_path = os.path.join(base, c_rel)
+            bin_path = os.path.join(base, bin_rel)
             if os.path.exists(img_path):
-                convert_to_lvgl_c(img_path, c_path, var_name, attr_name)
+                convert_to_lvgl_bin(img_path, bin_path)
             else:
                 print(f"Skipping {img_rel} (not found)")
+        print(f"\nSD card .bin files written to {os.path.join(base, 'sdcard')}/")
+        print("Copy the .bin files to the root of your SD card.")

@@ -2,6 +2,7 @@
 #include "PCF85063.h"
 #include "QMI8658.h"
 #include "SD_MMC.h"
+#include "sd_images.h"
 #include "Wireless.h"
 #include "TCA9554PWR.h"
 #include "BAT_Driver.h"
@@ -931,6 +932,7 @@ void app_main(void)
 {
     Driver_Init();
     SD_Init();
+    sd_images_init();
     
     // Try to initialize touch - will auto-detect if touch controller present
     if (Touch_Init()) {
@@ -1069,10 +1071,7 @@ void app_main(void)
             bool wake_trigger = false;
 
 #if EXBD_POWER_MODE == EXBD_POWER_ALWAYS_ON
-            // Permanently powered board — check select button for temp-wake
-            if (expansion_board_detected() && exbd_select_pressed()) {
-                wake_trigger = true;
-            }
+            // Permanently powered board — no dedicated select button wake
 #else
             // Ignition-switched board — probe I2C every ~2s to detect board return
             static uint32_t last_probe_ms = 0;
@@ -1235,17 +1234,28 @@ void app_main(void)
                     default: break;
                 }
             }
-        } else if (test_night_mode) {
-            /* No expansion board — force day mode */
-            test_night_mode = false;
-            Set_Backlight(BACKLIGHT_DAY);
-            ESP_LOGI("MAIN", "No expansion board — forcing DAY mode");
-            switch (current_gauge) {
-                case GAUGE_CLOCK:         clock_set_night_mode(false); break;
-                case GAUGE_TILT:          tilt_set_night_mode(false); break;
-                case GAUGE_INCLINE:       incline_set_night_mode(false); break;
-                case GAUGE_TIRE_PRESSURE: tire_pressure_set_night_mode(false); break;
-                default: break;
+        } else {
+            /* No expansion board — use dawn/dusk from RTC time and timezone latitude */
+            bool dark = settings_is_dark(datetime.month, datetime.day,
+                                         datetime.hour, datetime.minute);
+            if (dark != test_night_mode) {
+                test_night_mode = dark;
+                Set_Backlight(dark ? BACKLIGHT_NIGHT : BACKLIGHT_DAY);
+                ESP_LOGI("MAIN", "Night mode (solar) → %s (time %02d:%02d)",
+                         dark ? "ON" : "OFF", datetime.hour, datetime.minute);
+                switch (current_gauge) {
+                    case GAUGE_CLOCK:         clock_set_night_mode(test_night_mode); break;
+                    case GAUGE_HORIZON:       artificial_horizon_set_night_mode(test_night_mode); break;
+                    case GAUGE_TILT:          tilt_set_night_mode(test_night_mode); break;
+                    case GAUGE_INCLINE:       incline_set_night_mode(test_night_mode); break;
+                    case GAUGE_TIRE_PRESSURE: tire_pressure_set_night_mode(test_night_mode); break;
+                    case GAUGE_BOOST:         boost_set_night_mode(test_night_mode); break;
+                    case GAUGE_COMPASS:       compass_set_night_mode(test_night_mode); break;
+                    case GAUGE_EGT:           egt_set_night_mode(test_night_mode); break;
+                    case GAUGE_COOLING:       cooling_set_night_mode(test_night_mode); break;
+                    case GAUGE_SETTINGS:      settings_screen_set_night_mode(test_night_mode); break;
+                    default: break;
+                }
             }
         }
         

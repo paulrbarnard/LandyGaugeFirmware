@@ -58,8 +58,7 @@ static float incline_offset = 0.0f;
 static lv_color_t scale_line_color;
 
 // External images
-LV_IMG_DECLARE(side_110_292w);
-LV_IMG_DECLARE(side_dark_110_292w);
+#include "sd_images.h"
 
 // LVGL objects
 static lv_obj_t *incline_gauge    = NULL;
@@ -342,11 +341,7 @@ void incline_init(void)
 
     /* Side-view vehicle image */
     incline_img = lv_img_create(incline_gauge);
-    if (night_mode) {
-        lv_img_set_src(incline_img, &side_dark_110_292w);
-    } else {
-        lv_img_set_src(incline_img, &side_110_292w);
-    }
+    lv_img_set_src(incline_img, sd_images_get_side(night_mode));
     lv_obj_align(incline_img, LV_ALIGN_CENTER, 0, 0);
     /* Pivot at image centre; angle applied in incline_set_angle() */
     lv_img_set_pivot(incline_img, SIDE_IMG_WIDTH / 2, SIDE_IMG_HEIGHT / 2);
@@ -447,7 +442,7 @@ void incline_set_night_mode(bool night)
     scale_line_color = get_accent_color(night_mode);
 
     if (incline_img) {
-        lv_img_set_src(incline_img, night_mode ? &side_dark_110_292w : &side_110_292w);
+        lv_img_set_src(incline_img, sd_images_get_side(night_mode));
     }
     if (top_scale_obj)  lv_obj_invalidate(top_scale_obj);
     if (bottom_scale_obj) lv_obj_invalidate(bottom_scale_obj);

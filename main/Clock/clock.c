@@ -5,6 +5,7 @@
 
 #include "clock.h"
 #include "PCF85063.h"
+#include "sd_images.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -182,16 +183,9 @@ static void draw_clock_face(void)
     }
 
     // add the logo
-    LV_IMG_DECLARE(logo_img); // from the generated .c file
-
      lv_obj_t *logo = lv_img_create(clock_face);
-    lv_img_set_src(logo, &logo_img);
+    lv_img_set_src(logo, sd_images_get_logo(night_mode));
    lv_obj_align(logo, LV_ALIGN_CENTER, 0, 70); // Set y offset below center cap
-
-   // enable recolor
-lv_obj_set_style_img_recolor_opa(logo, LV_OPA_COVER, LV_PART_MAIN);
-// set the recolor color (green)
-lv_obj_set_style_img_recolor(logo, get_accent_color(night_mode), LV_PART_MAIN);
 
     // Create recessed shadow effects
     create_gauge_shadows(clock_face, night_mode);

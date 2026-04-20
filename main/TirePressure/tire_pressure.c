@@ -48,8 +48,7 @@ static lv_obj_t *battery_labels[4] = {NULL, NULL, NULL, NULL};   // FL, FR, RL, 
 static lv_obj_t *units_label = NULL;
 
 // Declare the external images
-LV_IMG_DECLARE(roof_110_150w);        // Day mode image
-LV_IMG_DECLARE(roof_dark_110_150w);   // Night mode image
+#include "sd_images.h"
 
 /**
  * @brief Update pressure label text based on current value and units
@@ -169,11 +168,7 @@ static void draw_gauge_face(void)
     // Create the roof image centered on the gauge
     roof_image = lv_img_create(gauge_container);
     // Switch between day and night mode images
-    if (night_mode) {
-        lv_img_set_src(roof_image, &roof_dark_110_150w);
-    } else {
-        lv_img_set_src(roof_image, &roof_110_150w);
-    }
+    lv_img_set_src(roof_image, sd_images_get_roof(night_mode));
     lv_obj_align(roof_image, LV_ALIGN_CENTER, 0, 0);
     
     ESP_LOGD(TAG, "roof image created and centered (%s mode)", night_mode ? "night" : "day");

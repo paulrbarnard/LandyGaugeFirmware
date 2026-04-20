@@ -23,8 +23,12 @@ Gauges that require the expansion board (Boost, EGT, Compass, Cooling) are autom
 
 The gauge supports two display modes:
 
-- **Day Mode** — White/bright accents on a dark background. Used when vehicle lights are off.
-- **Night Mode** — Green accents on a dark background with reduced backlight brightness. Activates automatically when the vehicle head lights are switched on (detected via the expansion board lights input).
+- **Day Mode** — White/bright accents on a dark background. Used when vehicle lights are off (or before dusk).
+- **Night Mode** — Green accents on a dark background with reduced backlight brightness.
+
+**With expansion board:** Activates automatically when the sidelights AND headlights (dip or full beam) are both on. This prevents night mode triggering from a momentary headlight flash or parking lights alone.
+
+**Without expansion board:** Night mode is determined automatically by the time of day using a civil twilight calculation (sun 6° below the horizon). The calculation uses the representative latitude of the selected timezone and the current date from the RTC, so it adjusts throughout the year — earlier dusk in winter, later in summer. For accurate results, ensure the correct timezone is selected and the clock has been synced via NTP.
 
 ---
 
@@ -50,18 +54,7 @@ Three physical buttons are available on the Waveshare board:
 - **Next button (GPIO43)** — Switch to the next gauge
 - **Previous button (GPIO44)** — Switch to the previous gauge
 - **Boot button (GPIO0)** — Also functions as a next gauge button
-- **Next + Previous held together** — Emulates the expansion board select button (including double-tap-to-clock and long-press actions). A 150 ms tolerance window means you don't need to press both buttons at the exact same instant.
-
-### Expansion Board Select Button
-
-The expansion board provides an additional select button:
-
-- **Double tap** — Jump to the Clock gauge
-- **Long press (hold for 1 second)** — Gauge-specific action (see individual gauge sections below). On the Cooling gauge this toggles wading mode.
-
-A short beep confirms when a long press is accepted.
-
-> **Note:** A single tap on the select button is ignored unless followed by a second tap within the double-tap window.
+- **Next + Previous held together** — Emulates a select action (including double-tap-to-clock and long-press actions). A 150 ms tolerance window means you don't need to press both buttons at the exact same instant.
 
 ---
 
@@ -79,7 +72,6 @@ The gauge monitors the vehicle ignition state through the expansion board:
 When the ignition is off, any of the following will temporarily wake the display for **5 minutes**:
 
 - Touching the screen
-- Pressing the expansion board select button
 - Holding both physical buttons (Next + Previous) simultaneously
 
 After 5 minutes of ignition-off operation, the gauge returns to standby. Any interaction during the temporary wake resets the 5-minute timer.
@@ -112,6 +104,8 @@ Displays an analogue clock face with hour and minute. Time is maintained by an o
 ### 2. Boost (Turbo Boost Pressure)
 
 Displays turbo boost pressure on an analogue dial gauge. The sensor is a 2-bar MAP (Manifold Absolute Pressure) sensor connected to the ADS1115 ADC on the expansion board.
+
+The MAP sensor has a 0.5V offset at zero pressure (0 kPa absolute) and outputs 0–5V over its 0–300 kPa range. The zero-boost reference has been calibrated to the measured atmospheric voltage at the ADC (0.7735V after the resistor divider), so the gauge reads 0 Bar at rest with no boost.
 
 - **Range:** 0–2.0 Bar (also displayable in PSI: 0–29 PSI)
 - **Warning zone:** Above 1.5 Bar — the needle and tick marks turn red/orange
@@ -190,7 +184,7 @@ Manual fan overrides automatically turn off after **5 minutes** to prevent drain
 
 #### Wading Mode
 
-Long-press the bottom half of the Cooling screen (or long-press the expansion board select button while on the Cooling gauge) to toggle wading mode:
+Long-press the bottom half of the Cooling screen to toggle wading mode:
 
 - **WADING ON:** Activates the wading output relay (expansion board output GPA0 / OUT1). Both fan icons turn **red**. Fan rotation animation stops. A "WADING" label appears on screen. Plays wadeOn.mp3.
 - **WADING OFF:** Deactivates the relay. Fan icons return to normal colours. Plays wadeOff.mp3.
@@ -350,6 +344,60 @@ The gauge plays audio alerts through the onboard speaker for various events. Aud
 
 ---
 
+## Custom Vehicle Images
+
+The Tilt, Incline, Tire Pressure, and Clock gauges display custom images. By default, these are the compiled-in Land Rover 110 images and logo, but you can replace them with your own by placing `.bin` files on the SD card.
+
+### Expected Files
+
+Place any or all of the following files in the **root** of the SD card:
+
+| File | Gauge | Mode | Default Size |
+|------|-------|------|--------------|
+| rear.bin | Tilt | Day | 204×235 |
+| reardark.bin | Tilt | Night | 204×235 |
+| side.bin | Incline | Day | 292×117 |
+| sidedark.bin | Incline | Night | 292×117 |
+| roof.bin | Tire Pressure | Day | 150×315 |
+| roofdark.bin | Tire Pressure | Night | 150×315 |
+| logo.bin | Clock | Day | 113×40 |
+| logodark.bin | Clock | Night | 113×40 |
+
+Each file is optional — if a file is missing, the compiled-in default is used for that slot. You can replace just one image (e.g. only `rear.bin`) without needing to provide all eight.
+
+### Image Format
+
+Images must be in LVGL binary format (`.bin`): a 4-byte LVGL header followed by raw RGB565 + alpha pixel data (3 bytes per pixel). Maximum image dimensions are 400×400.
+
+> **Note:** Filenames must follow 8.3 format (≤8 characters + `.bin`) since the SD card uses FAT without long filename support.
+
+### Generating .bin Files
+
+Use the included conversion script:
+
+```
+python3 convert_image.py --bin
+```
+
+This converts the source PNGs in the `images/` folder to both C arrays and `.bin` files. The `.bin` files are written to the `sdcard/` directory — copy them to the root of your SD card.
+
+To generate only `.bin` files (skip C array output):
+
+```
+python3 convert_image.py --bin-only
+```
+
+To create custom images, replace the PNGs in the `images/` folder with your own vehicle artwork (RGBA format, transparent background), then re-run the conversion script.
+
+### Loading Behaviour
+
+- Custom images are loaded once at boot (after SD card mount)
+- Images are loaded into PSRAM and remain in memory until power off
+- Invalid or corrupt files are silently skipped with a warning in the serial log
+- Removing the SD card after boot does not affect loaded images
+
+---
+
 ## Settings Persistence
 
 The following settings are saved to non-volatile storage (NVS) and persist across power cycles:
@@ -361,6 +409,7 @@ The following settings are saved to non-volatile storage (NVS) and persist acros
 - Incline display mode (degrees / 1:X / % slope)
 - Incline zero-offset angle (shared with Tilt)
 - Compass calibration data (hard-iron offsets and soft-iron scales)
+- TPMS sensor associations (BLE MAC addresses for each wheel position)
 - NTP last-sync timestamp (24-hour cooldown)
 
 Settings are saved automatically when changed and restored at boot.
@@ -373,14 +422,14 @@ Settings are saved automatically when changed and restored at boot.
 
 | Input | Signal | Description |
 |---|---|---|
-| IO0 | Select | Expansion board select button |
+| IO0 | Reserved | Reserved for future expansion |
 | IO1 | Ignition | Ignition on signal |
-| IO2 | Lights | Headlights on signal |
+| IO2 | Sidelights | Sidelights / parking lights on signal |
 | IO3 | Fan Low | Low-speed cooling fan active |
 | IO4 | Fan High | High-speed cooling fan active |
 | IO5 | Coolant Low | Coolant level float switch |
-| IO6 | Spare | Unused |
-| IO7 | Spare | Unused |
+| IO6 | Low Beam | Dipped headlights on signal |
+| IO7 | Full Beam | Full beam headlights on signal |
 
 ### Digital Outputs
 
@@ -394,7 +443,7 @@ Settings are saved automatically when changed and restored at boot.
 
 | Channel | Signal | Description |
 |---|---|---|
-| AIN0 | MAP Sensor | 2-bar boost pressure sensor (0–5V via resistor divider) |
+| AIN0 | MAP Sensor | 2-bar MAP sensor (0.5V offset, 0–5V output, via R26/R28 resistor divider) |
 | AIN1 | Coolant Temp | NTC temperature sender (Land Rover type, 50–120°C range) |
 
 ### Magnetometer
@@ -413,11 +462,11 @@ Settings are saved automatically when changed and restored at boot.
 |---|---|
 | Next gauge | Tap right side of screen, or press Next button |
 | Previous gauge | Tap left side of screen, or press Prev button |
-| Jump to Clock | Double-tap centre of screen, or double-tap Select button |
-| Gauge action | Long-press centre of screen, or hold Select button for 1 second |
+| Jump to Clock | Double-tap centre of screen, or double-tap Next+Prev combo |
+| Gauge action | Long-press centre of screen, or hold Next+Prev combo for 1 second |
 | Toggle fan low (Cooling gauge) | Long-press top-left of screen (over fan low icon) |
 | Toggle fan high (Cooling gauge) | Long-press top-right of screen (over fan high icon) |
-| Toggle wading (Cooling gauge) | Long-press bottom half of screen, or hold Select button |
+| Toggle wading (Cooling gauge) | Long-press bottom half of screen |
 | Force NTP sync (Clock gauge) | Long-press centre of clock (uses iPhone hotspot) |
 | Toggle boost units | Long-press centre of boost gauge |
 | Toggle EGT units | Long-press centre of EGT gauge |
@@ -425,5 +474,5 @@ Settings are saved automatically when changed and restored at boot.
 | Zero tilt gauge | Long-press centre of tilt gauge |
 | Cycle incline units | Long-press centre of incline gauge |
 | Calibrate compass | Long-press centre of compass gauge (long-press again to finish) |
-| Emulate Select button | Hold Next + Previous buttons together |
-| Wake from standby | Touch screen, press Select button, or hold both physical buttons (5-minute temporary wake) |
+| Emulate Select action | Hold Next + Previous buttons together |
+| Wake from standby | Touch screen or hold both physical buttons (5-minute temporary wake) |
