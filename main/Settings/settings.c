@@ -600,6 +600,21 @@ bool settings_is_dark(uint8_t month, uint8_t day, uint8_t hour, uint8_t minute)
     float dawn = 12.0f - ha_hours;
     float dusk = 12.0f + ha_hours;
 
+    /* The RTC stores local time, but dawn/dusk are in UTC (solar noon = 12:00 UTC).
+     * Convert dawn/dusk from UTC to local time using the system timezone offset. */
+    time_t t = time(NULL);
+    struct tm local_tm, utc_tm;
+    localtime_r(&t, &local_tm);
+    gmtime_r(&t, &utc_tm);
+    float utc_offset = (float)(local_tm.tm_hour - utc_tm.tm_hour)
+                     + (float)(local_tm.tm_min - utc_tm.tm_min) / 60.0f;
+    /* Handle day boundary (e.g. local 00:30, UTC 23:30 → offset should be +1) */
+    if (utc_offset < -12.0f) utc_offset += 24.0f;
+    if (utc_offset >  14.0f) utc_offset -= 24.0f;
+
+    dawn += utc_offset;
+    dusk += utc_offset;
+
     float now = (float)hour + (float)minute / 60.0f;
     return (now < dawn || now >= dusk);
 }
