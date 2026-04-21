@@ -78,9 +78,59 @@ Note: expansion-dependent gauges are automatically skipped when expansion hardwa
 Live project page and media gallery:
 - https://paulrbarnard.github.io/LandyGaugeFirmware/
 
-Gauge screenshots should use the files prefixed with s in the images folder (day and night captures of actual gauges).
+All gauges support day and night display modes. Below are screenshots from the actual hardware.
 
-Note: those s-prefixed screenshot files are not currently present in this local workspace, so the incorrect asset previews were removed from this README update.
+### Dashboard
+
+![Dashboard](images/sDash.jpeg)
+
+### Clock
+
+| Day | Night |
+|---|---|
+| ![Clock Day](images/sClock.jpeg) | ![Clock Night](images/sClockD.jpeg) |
+
+### Boost
+
+| Day | Night |
+|---|---|
+| ![Boost Day](images/sBoost.jpeg) | ![Boost Night](images/sBoostD.jpeg) |
+
+### EGT (Exhaust Gas Temperature)
+
+| Day | Night |
+|---|---|
+| ![EGT Day](images/sEGT.jpeg) | ![EGT Night](images/sEGTD.jpeg) |
+
+### Cooling
+
+| Day | Night |
+|---|---|
+| ![Cooling Day](images/sCool.jpeg) | ![Cooling Night](images/sCoolD.jpeg) |
+
+### Tire Pressure (BLE TPMS)
+
+| Day | Night |
+|---|---|
+| ![TPMS Day](images/sTPMS.jpeg) | ![TPMS Night](images/sTPMSD.jpeg) |
+
+### Tilt (Roll)
+
+| Day | Night |
+|---|---|
+| ![Tilt Day](images/sTilt.jpeg) | ![Tilt Night](images/sTiltD.jpeg) |
+
+### Incline (Pitch)
+
+| Day | Night |
+|---|---|
+| ![Incline Day](images/sIncl.jpeg) | ![Incline Night](images/sInclD.jpeg) |
+
+### Compass
+
+| Day | Night |
+|---|---|
+| ![Compass Day](images/sComp.jpeg) | ![Compass Night](images/sCompD.jpeg) |
 
 ## Quick Start
 
