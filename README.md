@@ -12,13 +12,13 @@ This project supports **both touch and non-touch versions** of the Waveshare ESP
 - **Board**: Waveshare ESP32-S3-Touch-LCD-1.85 (Touch)
 - **Display**: 1.85" RGB LCD, 360x360 resolution
 - **Touch**: CST820 capacitive touch controller
-- **Gauge Switching**: Touch gestures (to be implemented)
+- **Gauge Switching**: Touch gestures or external buttons
 
 #### Non-Touch Version
-- **Board**: Waveshare ESP32-S3-Touch-LCD-1.85 (Non-Touch)
+- **Board**: Waveshare ESP32-S3-LCD-1.85 (Non-Touch)
 - **Display**: 1.85" RGB LCD, 360x360 resolution
 - **Touch**: None
-- **Gauge Switching**: External buttons on GPIO pins
+- **Gauge Switching**: External buttons
   - Default Next Button: GPIO 0
   - Default Prev Button: GPIO 4
   - **Combo Press**: Pressing both Next + Prev simultaneously (within 150ms) acts as a Select button
@@ -41,22 +41,19 @@ Navigate to: **Example Configuration → Hardware Variant**
 
 - Select "Touch Version" for boards with CST820 touch controller
 - Select "Non-Touch Version" for boards without touch, using GPIO buttons
-
-For non-touch version, you can configure button GPIO pins:
-- **Next Button GPIO**: Default GPIO 0
-- **Previous Button GPIO**: Default GPIO 4
+- Compiling for touch soft fails on the non-touch board so a single image can be used for both varients
 
 ## Implemented Gauges
 
 ### 1. Analog Clock
 - WiFi/NTP time synchronization
-- UK timezone support (Europe/London)
+- Timezone support for 42 regions
 - Day/night mode with automatic color switching
 - Hour markers and numbers
 - Second, minute, and hour hands
 - 3D shadow effects for recessed appearance
 
-### 2. Artificial Horizon (Attitude Indicator)
+### 2. Artificial Horizon (Attitude Indicator) Currently deactivated in gauge sequence
 - Real-time pitch and roll display using QMI8658 IMU
 - Aircraft-style horizon with sky/ground split
 - Pitch ladder with 10° increments and numeric labels
@@ -71,15 +68,6 @@ For non-touch version, you can configure button GPIO pins:
   - Red: Pitch ±45° or Roll ±35°
 - Audio warning beeps at configurable intervals
 - Day/night mode support
-
-## Display Scaling
-
-This version is scaled from the original 480x480 LandyGauge display to 360x360:
-- **Scaling factor**: 0.75×
-- All gauge elements proportionally scaled
-- Shadow widths: 15px (vs 20px original)
-- Line widths appropriately reduced
-- Maintains visual consistency with larger version
 
 ## Global Configuration
 
