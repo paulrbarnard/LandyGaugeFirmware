@@ -80,6 +80,8 @@ Live project page and media gallery:
 
 All gauges support day and night display modes. Below are screenshots from the actual hardware.
 
+Image naming convention: no suffix = day mode, `D` suffix = night mode (e.g. `sClock.jpeg` = Clock day, `sClockD.jpeg` = Clock night).
+
 ### Dashboard
 
 ![Dashboard](images/sDash.jpeg)
