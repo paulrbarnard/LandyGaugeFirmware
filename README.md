@@ -1,117 +1,124 @@
-# LandyGaugeSmall - Vehicle Instrument Panel for ESP32-S3-Touch-LCD-1.85
+# LandyGaugeSmall
 
-A scaled version of LandyGauge optimized for the Waveshare ESP32-S3-Touch-LCD-1.85 (360x360 display).
+Open-source digital instrument cluster firmware for Land Rover projects, built on ESP-IDF for the Waveshare ESP32-S3-Touch-LCD-1.85 (360x360).
+
+Author and copyright owner: Paul Barnard (Toxic Celery).
+
+## Project Links
+
+- Repository: https://github.com/paulrbarnard/LandyGaugeFirmware
+- GitHub Pages: https://paulrbarnard.github.io/LandyGaugeFirmware/
+
+## Project Status
+
+Current state: active development, hardware-tested features in daily use.
+
+Implemented and working now:
+- 8-gauge UI flow with touch and button navigation
+- Day/night mode switching (vehicle-light triggered with expansion board, solar-time fallback without)
+- Power and standby logic with ignition-aware wake and inactivity timeout
+- Persistent settings via NVS
+- Expansion board integration (inputs, outputs, ADC sensors)
+- SD card support for custom images and MP3 alert assets
+- BLE TPMS scanning and alarm switching
+- Audio alerts and spoken status cues via external DAC/audio path
+
+In progress:
+- Broader field testing across more sensor combinations and edge cases
+- Documentation screenshots and setup walkthrough improvements
+- Additional gauge refinements and optional integrations
 
 ## Hardware Support
 
-This project supports **both touch and non-touch versions** of the Waveshare ESP32-S3-Touch-LCD-1.85 board.
+This project supports both touch and non-touch variants of the Waveshare 1.85-inch ESP32-S3 board.
 
-### Hardware Variants
+### Touch Variant (default)
+- Board: Waveshare ESP32-S3-Touch-LCD-1.85
+- Display: 360x360 RGB LCD
+- Touch: CST820 capacitive touch controller
+- Navigation: touch gestures or external buttons
 
-#### Touch Version (Default)
-- **Board**: Waveshare ESP32-S3-Touch-LCD-1.85 (Touch)
-- **Display**: 1.85" RGB LCD, 360x360 resolution
-- **Touch**: CST820 capacitive touch controller
-- **Gauge Switching**: Touch gestures or external buttons
+### Non-Touch Variant
+- Board: Waveshare ESP32-S3-LCD-1.85
+- Display: 360x360 RGB LCD
+- Touch: none
+- Navigation: external buttons
+- Default Next button: GPIO0
+- Default Prev button: GPIO4
+- Combo press (Next + Prev within 150ms): Select
+- Long combo press (1 second): long-press Select action
 
-#### Non-Touch Version
-- **Board**: Waveshare ESP32-S3-LCD-1.85 (Non-Touch)
-- **Display**: 1.85" RGB LCD, 360x360 resolution
-- **Touch**: None
-- **Gauge Switching**: External buttons
-  - Default Next Button: GPIO 0
-  - Default Prev Button: GPIO 4
-  - **Combo Press**: Pressing both Next + Prev simultaneously (within 150ms) acts as a Select button
-  - **Long Press**: Holding the combo press for 1 second triggers a long-press select action
+Note: touch support soft-fails on non-touch hardware, so one firmware image can run on both variants.
 
-### Common Features
-- **IMU**: QMI8658 6-axis motion sensor (gyroscope + accelerometer)
-- **MCU**: ESP32-S3 with 8MB Flash, 8MB PSRAM
-- **Display**: RGB565 color format, ST7701S LCD driver
+## Current Gauge Set
 
-## Configuration
+1. Clock (RTC + NTP sync)
+2. Boost
+3. EGT
+4. Cooling
+5. Tire Pressure (BLE TPMS)
+6. Tilt (roll)
+7. Incline (pitch)
+8. Compass
 
-Select your hardware variant using menuconfig:
+Note: expansion-dependent gauges are automatically skipped when expansion hardware is not detected.
+
+## Key Features
+
+- Touch navigation (left and right tap, double-tap center to Clock, long-press gauge actions)
+- Physical button navigation and combo-select behavior
+- Automatic alarm-driven screen switching (EGT, cooling, TPMS, tilt)
+- Wading mode and fan override controls on the Cooling gauge
+- Unit switching with persistence (for example PSI/BAR and C/F)
+- Time synchronization with timezone support
+- 360x360 optimized rendering and image fallback loading
+
+## Quick Start
+
+### 1. ESP-IDF environment
+
+Use ESP-IDF v5.5.x (currently built and tested there).
+
+### 2. Configure
 
 ```bash
 idf.py menuconfig
 ```
 
-Navigate to: **Example Configuration → Hardware Variant**
+Set hardware and feature options under Example Configuration.
 
-- Select "Touch Version" for boards with CST820 touch controller
-- Select "Non-Touch Version" for boards without touch, using GPIO buttons
-- Compiling for touch soft fails on the non-touch board so a single image can be used for both varients
-
-## Implemented Gauges
-
-### 1. Analog Clock
-- WiFi/NTP time synchronization
-- Timezone support for 42 regions
-- Day/night mode with automatic color switching
-- Hour markers and numbers
-- Second, minute, and hour hands
-- 3D shadow effects for recessed appearance
-
-### 2. Artificial Horizon (Attitude Indicator) Currently deactivated in gauge sequence
-- Real-time pitch and roll display using QMI8658 IMU
-- Aircraft-style horizon with sky/ground split
-- Pitch ladder with 10° increments and numeric labels
-- Roll scale arc with degree markings
-- Fixed aircraft symbol (yellow wings)
-- Complementary filter for smooth attitude estimation
-  - Alpha = 0.50 (balanced gyro/accelerometer weighting)
-  - 100Hz update rate
-- Color-coded warnings:
-  - Green/White: Normal operation
-  - Yellow: Pitch ±35° or Roll ±30°
-  - Red: Pitch ±45° or Roll ±35°
-- Audio warning beeps at configurable intervals
-- Day/night mode support
-
-## Global Configuration
-
-- `night_mode_enabled`: Controls day/night color scheme for all gauges
-- `current_gauge`: Selects which gauge to display (GAUGE_CLOCK or GAUGE_ARTIFICIAL_HORIZON)
-
-## Building
+### 3. Build
 
 ```bash
 idf.py build
+```
+
+### 4. Flash and monitor
+
+```bash
 idf.py -p /dev/tty.usbmodem* flash monitor
 ```
 
-## Display Configuration
+## Repository Layout
 
-The display resolution is configured in `main/LCD_Driver/ST7701S.h`:
-```c
-#define EXAMPLE_LCD_H_RES  360
-#define EXAMPLE_LCD_V_RES  360
-```
+- main: application source and gauge modules
+- main/ExpansionBoard: expansion board drivers and IO logic
+- main/SD_Card: SD mount, assets, and image loading
+- main/LVGL_Driver: display and LVGL integration
+- USER_MANUAL.md: end-user behavior and controls
+- TEST_PLAN.md: comprehensive validation plan
 
-## Gauge Dimensions
+## Documentation
 
-### Clock
-- Clock diameter: 360px (full screen)
-- Shadow circles: 330px (360 - 30)
-- Hour markers: Scaled appropriately
-- Hand widths: Hour 12px, Minute 9px
+- User guide: USER_MANUAL.md
+- Validation checklist: TEST_PLAN.md
+- Hardware notes: HARDWARE_VARIANTS.md
+- Scaling notes: SCALING_NOTES.md
 
-### Artificial Horizon
-- Screen size: 360×360px
-- Horizon display: 330px diameter
-- Shadow circles: 322px (330 - 8)
-- Masking ring: 15px border
-- All line widths and spacing scaled by 0.75×
+## Open Source Notes
 
-## Future Enhancements
+This project is being maintained as open source. Source files include copyright attribution for Paul Barnard (Toxic Celery).
 
-- Additional gauges (speedometer, tachometer, fuel, temperature)
-- Touch-based gauge switching
-- OBD-II integration for vehicle data
-- GPS speedometer
-- Custom warning thresholds
+## Acknowledgements
 
-## Credits
-
-Based on LandyGauge project for ESP32-S3-Touch-LCD-2.1 (480x480).
+Built on ESP-IDF, LVGL, and Waveshare ESP32-S3 display platform components.
