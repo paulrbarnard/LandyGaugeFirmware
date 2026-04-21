@@ -73,6 +73,29 @@ Note: expansion-dependent gauges are automatically skipped when expansion hardwa
 - Time synchronization with timezone support
 - 360x360 optimized rendering and image fallback loading
 
+## Screenshots
+
+Live project page and media gallery:
+- https://paulrbarnard.github.io/LandyGaugeFirmware/
+
+Vehicle/theme image sets currently included:
+
+| Theme | Preview |
+|---|---|
+| 110 Rear | ![110 Rear](images/110Rear235.png) |
+| 110 Rear (Dark) | ![110 Rear Dark](images/110RearDark235.png) |
+| 110 Roof | ![110 Roof](images/110Roof150w.png) |
+| 110 Roof (Dark) | ![110 Roof Dark](images/110RoofDark150w.png) |
+| 110 Side | ![110 Side](images/110Side292w.png) |
+| 110 Side (Dark) | ![110 Side Dark](images/110SideDark292w.png) |
+
+Brand assets:
+
+| Asset | Preview |
+|---|---|
+| Logo | ![Logo](images/logo.png) |
+| Logo (Dark) | ![Logo Dark](images/logoDark.png) |
+
 ## Quick Start
 
 ### 1. ESP-IDF environment
