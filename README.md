@@ -7,7 +7,7 @@ Author and copyright owner: Paul Barnard (Toxic Celery).
 ## Project Links
 
 - Repository: https://github.com/paulrbarnard/LandyGaugeFirmware
-- GitHub Pages: https://paulrbarnard.github.io/LandyGaugeFirmware/
+- Project website: https://www.toxiccelery.com/
 
 ## Project Status
 
@@ -76,7 +76,7 @@ Note: expansion-dependent gauges are automatically skipped when expansion hardwa
 ## Screenshots
 
 Live project page and media gallery:
-- https://paulrbarnard.github.io/LandyGaugeFirmware/
+- https://www.toxiccelery.com/
 
 All gauges support day and night display modes. Below are screenshots from the actual hardware.
 
