@@ -173,8 +173,8 @@ A confirmation beep sounds when each long press is accepted.
 
 Press and hold over the fan low or fan high icon to manually activate or deactivate that fan relay:
 
-- **Fan Low** — Controls expansion board output GPA1
-- **Fan High** — Controls expansion board output GPA2
+- **Fan Low** — Controls expansion board output GPA3
+- **Fan High** — Controls expansion board output GPA4
 
 Audio confirmation plays when toggling (fanLowOn.mp3 / flooff.mp3, fhion.mp3 / fhioff.mp3).
 
@@ -186,7 +186,7 @@ Manual fan overrides automatically turn off after **5 minutes** to prevent drain
 
 Long-press the bottom half of the Cooling screen to toggle wading mode:
 
-- **WADING ON:** Activates the wading output relay (expansion board output GPA0 / OUT1). Both fan icons turn **red**. Fan rotation animation stops. A "WADING" label appears on screen. Plays wadeOn.mp3.
+- **WADING ON:** Activates the wading output relay (expansion board output GPA2 / OUT1). Both fan icons turn **red**. Fan rotation animation stops. A "WADING" label appears on screen. Plays wadeOn.mp3.
 - **WADING OFF:** Deactivates the relay. Fan icons return to normal colours. Plays wadeOff.mp3.
 
 When wading mode is activated:
@@ -435,9 +435,9 @@ Settings are saved automatically when changed and restored at boot.
 
 | Output | Pin | Function |
 |---|---|---|
-| OUT1 / GPA0 | MCP23017 GPA0 | Wading mode relay |
-| Fan Low | MCP23017 GPA1 | Manual fan low speed relay |
-| Fan High | MCP23017 GPA2 | Manual fan high speed relay |
+| OUT1 / GPA2 | MCP23017 GPA2 | Wading mode relay |
+| Fan Low | MCP23017 GPA3 | Manual fan low speed relay |
+| Fan High | MCP23017 GPA4 | Manual fan high speed relay |
 
 ### Analogue Inputs (ADS1115 ADC)
 
