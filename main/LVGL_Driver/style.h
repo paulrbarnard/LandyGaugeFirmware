@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file style.h
  * @brief LVGL style definitions for analog clock and UI elements

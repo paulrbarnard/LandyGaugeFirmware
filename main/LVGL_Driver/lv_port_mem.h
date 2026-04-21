@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file lv_port_mem.h
  * @brief Custom memory allocation for LVGL using ESP32 PSRAM

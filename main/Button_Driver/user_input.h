@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file user_input.h
  * @brief Unified input abstraction for all user interaction methods

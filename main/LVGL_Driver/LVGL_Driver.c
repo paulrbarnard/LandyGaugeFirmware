@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "LVGL_Driver.h"
 #include "CST820.h"  // Always include - runtime detection via touch_available
 

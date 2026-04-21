@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include <stdint.h>
 #include "esp_heap_caps.h"
 #include <stddef.h>

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file mcp9600.h
  * @brief MCP9600 thermocouple EMF-to-temperature converter driver

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "Wireless.h"
 
 uint16_t BLE_NUM = 0;

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "ST77916.h"
 #include "PCF85063.h"
 #include "QMI8658.h"

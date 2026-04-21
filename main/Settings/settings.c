@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file settings.c
  * @brief Persistent settings via NVS (non-volatile storage)

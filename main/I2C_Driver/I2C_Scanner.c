@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "I2C_Driver.h"
 
 static const char *SCANNER_TAG = "I2C_SCANNER";

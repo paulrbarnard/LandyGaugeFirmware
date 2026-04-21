@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file ads1115.h
  * @brief ADS1115 16-bit 4-channel I2C ADC driver

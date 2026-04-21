@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Paul Barnard (Toxic Celery)
+
 """Convert PNG images to LVGL C array format and/or SD card .bin format.
 
 Usage:

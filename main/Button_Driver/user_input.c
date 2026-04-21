@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file user_input.c
  * @brief Unified input handler — merges buttons, expansion board & touch

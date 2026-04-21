@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file compass.h
  * @brief Compass gauge display using LVGL and LIS3MDL magnetometer

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file mcp23017.c
  * @brief MCP23017 16-bit I2C I/O Expander driver implementation

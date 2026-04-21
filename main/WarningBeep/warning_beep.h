@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file warning_beep.h
  * @brief Warning beep module for audio alerts with MP3 playback

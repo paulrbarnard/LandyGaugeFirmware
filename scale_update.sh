@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) 2026 Paul Barnard (Toxic Celery)
+
 # Script to scale all gauge elements from 480x480 to 360x360
 # Scaling factor: 0.75
 

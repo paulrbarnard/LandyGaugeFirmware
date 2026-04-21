@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file ble_tpms.c
  * @brief BLE TPMS (Tire Pressure Monitoring System) driver implementation

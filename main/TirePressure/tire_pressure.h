@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file tire_pressure.h
  * @brief Tire Pressure gauge display using LVGL

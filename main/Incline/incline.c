@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file incline.c
  * @brief Incline (pitch) gauge display implementation using LVGL

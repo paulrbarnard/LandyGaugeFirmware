@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /*****************************************************************************
 * | File      	:   PCF85063.c
 * | Author      :   Waveshare team

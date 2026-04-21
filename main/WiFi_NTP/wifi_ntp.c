@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file wifi_ntp.c
  * @brief WiFi connection and NTP time synchronization implementation

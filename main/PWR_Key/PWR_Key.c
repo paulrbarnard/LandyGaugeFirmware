@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "PWR_Key.h"
 
 static uint8_t BAT_State = 0; 

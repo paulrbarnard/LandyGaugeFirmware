@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "TCA9554PWR.h"
 
 /*****************************************************  Operation register REG   ****************************************************/

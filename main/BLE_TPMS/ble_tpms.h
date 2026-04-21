@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file ble_tpms.h
  * @brief BLE TPMS (Tire Pressure Monitoring System) driver for AIYATO/ZEEPIN sensors

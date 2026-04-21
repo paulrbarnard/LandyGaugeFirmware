@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "CST820.h"
 #include "ST77916.h"  // For I2C_TOUCH_NUM definition
 

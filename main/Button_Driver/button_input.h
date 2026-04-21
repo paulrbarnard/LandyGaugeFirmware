@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file button_input.h
  * @brief Debounced GPIO button input driver for gauge switching

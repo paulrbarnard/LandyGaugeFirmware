@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file sd_images.c
  * @brief Load custom vehicle images from SD card with compiled-in fallbacks

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file expansion_board.h
  * @brief Expansion board manager — digital inputs, ADC, magnetometer

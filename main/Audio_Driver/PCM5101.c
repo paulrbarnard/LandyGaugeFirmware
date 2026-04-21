@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 #include "PCM5101.h"
 
 static const char *TAG = "AUDIO PCM5101"; 

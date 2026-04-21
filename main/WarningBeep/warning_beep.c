@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file warning_beep.c
  * @brief Warning beep module implementation using I2S tone generation and MP3 playback

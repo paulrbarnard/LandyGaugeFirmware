@@ -1,4 +1,6 @@
 #!/bin/bash
+# Copyright (c) 2026 Paul Barnard (Toxic Celery)
+
 # Fine-tune scaling for line widths and other details
 
 cd /Users/pbarnard/Documents/ESP/LandyGaugeSmall

@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file artificial_horizon_example.c
  * @brief Example showing how to integrate the artificial horizon with QMI8658 IMU

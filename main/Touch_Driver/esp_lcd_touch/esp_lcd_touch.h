@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2026 Paul Barnard (Toxic Celery)
  *
  * SPDX-License-Identifier: Apache-2.0
  */

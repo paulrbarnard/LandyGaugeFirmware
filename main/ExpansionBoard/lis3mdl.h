@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file lis3mdl.h
  * @brief LIS3MDL 3-axis magnetometer driver

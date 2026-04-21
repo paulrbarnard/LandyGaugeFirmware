@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file egt.h
  * @brief Exhaust Gas Temperature gauge display using LVGL

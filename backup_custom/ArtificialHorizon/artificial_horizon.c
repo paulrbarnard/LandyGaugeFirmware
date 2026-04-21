@@ -1,3 +1,7 @@
+/*
+ * Copyright (c) 2026 Paul Barnard (Toxic Celery)
+ */
+
 /**
  * @file artificial_horizon.c
  * @brief Artificial horizon (attitude indicator) gauge implementation

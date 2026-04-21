@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2021-2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2026 Paul Barnard (Toxic Celery)
 # SPDX-License-Identifier: CC0-1.0
 
 import pytest
