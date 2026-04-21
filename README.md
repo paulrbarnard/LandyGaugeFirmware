@@ -78,23 +78,9 @@ Note: expansion-dependent gauges are automatically skipped when expansion hardwa
 Live project page and media gallery:
 - https://paulrbarnard.github.io/LandyGaugeFirmware/
 
-Vehicle/theme image sets currently included:
+Gauge screenshots should use the files prefixed with s in the images folder (day and night captures of actual gauges).
 
-| Theme | Preview |
-|---|---|
-| 110 Rear | ![110 Rear](images/110Rear235.png) |
-| 110 Rear (Dark) | ![110 Rear Dark](images/110RearDark235.png) |
-| 110 Roof | ![110 Roof](images/110Roof150w.png) |
-| 110 Roof (Dark) | ![110 Roof Dark](images/110RoofDark150w.png) |
-| 110 Side | ![110 Side](images/110Side292w.png) |
-| 110 Side (Dark) | ![110 Side Dark](images/110SideDark292w.png) |
-
-Brand assets:
-
-| Asset | Preview |
-|---|---|
-| Logo | ![Logo](images/logo.png) |
-| Logo (Dark) | ![Logo Dark](images/logoDark.png) |
+Note: those s-prefixed screenshot files are not currently present in this local workspace, so the incorrect asset previews were removed from this README update.
 
 ## Quick Start
 
