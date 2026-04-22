@@ -20,9 +20,9 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 - AIN1 — Coolant temp: use a potentiometer (0.68–1.88V) to simulate NTC sender (0.68V ≈ 120°C, 1.88V ≈ 50°C)
 
 **Outputs to verify** (MCP23017 Port A — check with LEDs or multimeter):
-- GPA0 — Wading relay
-- GPA1 — Fan Low override relay
-- GPA2 — Fan High override relay
+- GPA2 — Wading relay
+- GPA3 — Fan Low override relay
+- GPA4 — Fan High override relay
 
 **Other equipment needed:**
 - SD card with all MP3 files (8.3 format names)
@@ -181,10 +181,10 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 
 | # | Test | Steps | Expected Result | Status |
 |---|------|-------|-----------------|--------|
-| 9.14 | Wading ON — touch | On Cooling gauge, long-press bottom half of screen | GPA0 output goes HIGH, fan icons turn red, "WADING" label shows, wadeOn.mp3 plays | [ ] |
+| 9.14 | Wading ON — touch | On Cooling gauge, long-press bottom half of screen | GPA2 output goes HIGH, fan icons turn red, "WADING" label shows, wadeOn.mp3 plays | [ ] |
 | 9.15 | Wading ON — button combo | On Cooling gauge, hold Next+Prev >1s | Same as 9.14 — wading activates | [ ] |
 | 9.16 | Wading — navigation blocked | With wading ON, try to tap left/right to change gauge | Gauge does NOT change — locked on Cooling | [ ] |
-| 9.17 | Wading OFF | Long-press bottom half again (or hold select) | GPA0 goes LOW, fan icons return to normal colours, wadeOff.mp3 plays | [ ] |
+| 9.17 | Wading OFF | Long-press bottom half again (or hold select) | GPA2 goes LOW, fan icons return to normal colours, wadeOff.mp3 plays | [ ] |
 | 9.18 | Wading kills fan overrides | Activate fan low override, then activate wading | Fan low override turns OFF when wading activates | [ ] |
 | 9.19 | Fan override blocked in wading | With wading ON, long-press fan low icon | No action — fan override rejected while wading active | [ ] |
 
@@ -192,13 +192,13 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 
 | # | Test | Steps | Expected Result | Status |
 |---|------|-------|-----------------|--------|
-| 9.20 | Fan low override ON | On Cooling gauge, long-press top-left (fan low icon) | GPA1 goes HIGH, fan low icon animates, fanLowOn.mp3 plays | [ ] |
-| 9.21 | Fan low override OFF | Long-press top-left again | GPA1 goes LOW, fan low icon stops (if hardware signal also LOW), flooff.mp3 plays | [ ] |
-| 9.22 | Fan high override ON | Long-press top-right (fan high icon) | GPA2 goes HIGH, fan high icon animates, fhion.mp3 plays | [ ] |
-| 9.23 | Fan high override OFF | Long-press top-right again | GPA2 goes LOW, fhioff.mp3 plays | [ ] |
-| 9.24 | Fan override 5-min timeout | Activate fan low override, wait 5 minutes | Override auto-deactivates, GPA1 goes LOW, off MP3 plays, log shows timeout | [ ] |
-| 9.25 | Fan override + hardware signal | Activate fan low override (GPA1), also set IO3 HIGH | Fan icon animates from both sources; turning off override still shows animation from hardware signal | [ ] |
-| 9.26 | Fan override timeout — background | Activate fan high override, switch to another gauge, wait 5 min | Override still times out in background, GPA2 goes LOW, off MP3 plays | [ ] |
+| 9.20 | Fan low override ON | On Cooling gauge, long-press top-left (fan low icon) | GPA3 goes HIGH, fan low icon animates, fanLowOn.mp3 plays | [ ] |
+| 9.21 | Fan low override OFF | Long-press top-left again | GPA3 goes LOW, fan low icon stops (if hardware signal also LOW), flooff.mp3 plays | [ ] |
+| 9.22 | Fan high override ON | Long-press top-right (fan high icon) | GPA4 goes HIGH, fan high icon animates, fhion.mp3 plays | [ ] |
+| 9.23 | Fan high override OFF | Long-press top-right again | GPA4 goes LOW, fhioff.mp3 plays | [ ] |
+| 9.24 | Fan override 5-min timeout | Activate fan low override, wait 5 minutes | Override auto-deactivates, GPA3 goes LOW, off MP3 plays, log shows timeout | [ ] |
+| 9.25 | Fan override + hardware signal | Activate fan low override (GPA3), also set IO3 HIGH | Fan icon animates from both sources; turning off override still shows animation from hardware signal | [ ] |
+| 9.26 | Fan override timeout — background | Activate fan high override, switch to another gauge, wait 5 min | Override still times out in background, GPA4 goes LOW, off MP3 plays | [ ] |
 
 ### 9f. Cooling Auto-Switch Alarm
 
@@ -408,7 +408,7 @@ The gauge is mounted in a test jig with the ability to simulate all expansion bo
 | 20.3 | All inputs HIGH simultaneously | Set all 6 inputs HIGH at once | Each input handled correctly, no interference | [ ] |
 | 20.4 | All inputs LOW | Set all inputs LOW | All states show inactive/normal | [ ] |
 | 20.5 | Input debounce | Rapidly toggle fan low input | Input state only changes after 50ms stable reading | [ ] |
-| 20.6 | Output verification — all relays | Activate wading + fan overrides in sequence | GPA0, GPA1, GPA2 each go HIGH independently | [ ] |
+| 20.6 | Output verification — all relays | Activate wading + fan overrides in sequence | GPA2, GPA3, GPA4 each go HIGH independently | [ ] |
 
 ---
 

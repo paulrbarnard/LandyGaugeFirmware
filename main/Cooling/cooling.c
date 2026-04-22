@@ -148,8 +148,8 @@ static bool is_visible = false;
 static bool wading_mode = false;
 
 /* ── Manual fan override state ──────────────────────────────────────── */
-static bool fan_low_override  = false;   /* Manual fan low via GPA1 */
-static bool fan_high_override = false;   /* Manual fan high via GPA2 */
+static bool fan_low_override  = false;   /* Manual fan low via GPA3 */
+static bool fan_high_override = false;   /* Manual fan high via GPA4 */
 #define FAN_OVERRIDE_TIMEOUT_MS  (5UL * 60 * 1000)  /* 5 minutes */
 static uint32_t fan_low_override_start  = 0;  /* Timestamp when override activated */
 static uint32_t fan_high_override_start = 0;

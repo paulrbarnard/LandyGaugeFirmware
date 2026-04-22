@@ -58,19 +58,19 @@ void cooling_cleanup(void);
 
 /**
  * @brief Toggle wading mode on/off
- * Activates/deactivates OUT1 on expansion board, plays MP3 notification
+ * Activates/deactivates GPA2 (OUT1) on expansion board, plays MP3 notification
  */
 void cooling_toggle_wading(void);
 
 /**
  * @brief Toggle manual fan low override on/off
- * Controls GPA1 on MCP23017 expansion board
+ * Controls GPA3 on MCP23017 expansion board
  */
 void cooling_toggle_fan_low(void);
 
 /**
  * @brief Toggle manual fan high override on/off
- * Controls GPA2 on MCP23017 expansion board
+ * Controls GPA4 on MCP23017 expansion board
  */
 void cooling_toggle_fan_high(void);
 
